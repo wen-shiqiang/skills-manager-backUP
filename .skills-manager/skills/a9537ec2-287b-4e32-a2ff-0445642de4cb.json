@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "a9537ec2-287b-4e32-a2ff-0445642de4cb",
+  "path": "Frontend CSS Standards",
+  "path_key": "frontend css standards",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "local",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

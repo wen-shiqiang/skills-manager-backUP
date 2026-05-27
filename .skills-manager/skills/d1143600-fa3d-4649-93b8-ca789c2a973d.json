@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "d1143600-fa3d-4649-93b8-ca789c2a973d",
+  "path": "Frontend Components Standards",
+  "path_key": "frontend components standards",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "local",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

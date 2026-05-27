@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "8b2b7ea4-5570-444b-9983-527dedc8b149",
+  "path": "imagegen-frontend-web",
+  "path_key": "imagegen-frontend-web",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "local",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

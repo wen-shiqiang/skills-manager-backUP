@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "76fba87c-cf9b-4c29-a9a4-97a16aca1089",
+  "path": "brandkit",
+  "path_key": "brandkit",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "local",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

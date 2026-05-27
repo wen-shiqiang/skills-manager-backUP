@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "b2499541-2c9c-46dc-af79-6a6717911d4f",
+  "path": "novel-consistency-local",
+  "path_key": "novel-consistency-local",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "local",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

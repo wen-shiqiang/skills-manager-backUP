@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "283113af-16c3-4ed4-a356-ee750c7657be",
+  "path": "web-design-engineer",
+  "path_key": "web-design-engineer",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "local",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}
