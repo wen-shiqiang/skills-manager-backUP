@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "d7758fe5-e156-4f8b-9919-7ef9101207cc",
+  "path": "design-is",
+  "path_key": "design-is",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\design-is",
+    "branch": null
+  }
+}

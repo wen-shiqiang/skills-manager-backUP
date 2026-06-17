@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "c09d208e-2a37-4a83-bb7b-1c6312cac903",
+  "path": "to-prd",
+  "path_key": "to-prd",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "import",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

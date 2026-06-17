@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "a0b6aae0-e549-459b-8705-c100773643f5",
+  "path": "qclaw-calendar-guide",
+  "path_key": "qclaw-calendar-guide",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "import",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

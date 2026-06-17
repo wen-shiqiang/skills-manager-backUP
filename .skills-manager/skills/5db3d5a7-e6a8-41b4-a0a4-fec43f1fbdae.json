@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "5db3d5a7-e6a8-41b4-a0a4-fec43f1fbdae",
+  "path": "wowerpoint",
+  "path_key": "wowerpoint",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\wowerpoint",
+    "branch": null
+  }
+}

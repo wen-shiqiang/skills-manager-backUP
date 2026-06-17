@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "86b25a51-6bd1-4b59-82bd-47e7945516fe",
+  "path": "qclaw-openclaw",
+  "path_key": "qclaw-openclaw",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "import",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

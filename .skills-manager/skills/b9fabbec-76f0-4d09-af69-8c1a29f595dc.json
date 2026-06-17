@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "b9fabbec-76f0-4d09-af69-8c1a29f595dc",
+  "path": "ce-ideate",
+  "path_key": "ce-ideate",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-ideate",
+    "branch": null
+  }
+}

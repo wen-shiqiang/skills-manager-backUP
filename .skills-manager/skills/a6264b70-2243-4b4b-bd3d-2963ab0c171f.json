@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "a6264b70-2243-4b4b-bd3d-2963ab0c171f",
+  "path": "ce-compound",
+  "path_key": "ce-compound",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-compound",
+    "branch": null
+  }
+}

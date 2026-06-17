@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "20d1341c-2224-4f33-9fa0-1f19bcbd4ad9",
+  "path": "how-it-works",
+  "path_key": "how-it-works",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\how-it-works",
+    "branch": null
+  }
+}

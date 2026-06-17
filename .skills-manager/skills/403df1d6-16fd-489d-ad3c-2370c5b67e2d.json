@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "403df1d6-16fd-489d-ad3c-2370c5b67e2d",
+  "path": "acceptance-testing",
+  "path_key": "acceptance-testing",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "import",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

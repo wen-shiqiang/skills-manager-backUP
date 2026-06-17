@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "29e2e479-0d82-4a88-a6e8-d4d800b23353",
+  "path": "ce-report-bug",
+  "path_key": "ce-report-bug",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-report-bug",
+    "branch": null
+  }
+}

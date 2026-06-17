@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "4657b5dd-1843-4149-ba71-4a6c1e615ff0",
+  "path": "ce-setup",
+  "path_key": "ce-setup",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-setup",
+    "branch": null
+  }
+}

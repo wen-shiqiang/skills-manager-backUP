@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "87c123eb-c05d-48ca-880d-851eb41d9802",
+  "path": "ce-update",
+  "path_key": "ce-update",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-update",
+    "branch": null
+  }
+}

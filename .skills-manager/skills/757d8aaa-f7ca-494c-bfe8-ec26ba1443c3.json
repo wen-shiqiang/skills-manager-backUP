@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "757d8aaa-f7ca-494c-bfe8-ec26ba1443c3",
+  "path": "weekly-digests",
+  "path_key": "weekly-digests",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\weekly-digests",
+    "branch": null
+  }
+}

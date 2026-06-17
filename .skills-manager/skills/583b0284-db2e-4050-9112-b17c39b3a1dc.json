@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "583b0284-db2e-4050-9112-b17c39b3a1dc",
+  "path": "ce-sessions",
+  "path_key": "ce-sessions",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-sessions",
+    "branch": null
+  }
+}

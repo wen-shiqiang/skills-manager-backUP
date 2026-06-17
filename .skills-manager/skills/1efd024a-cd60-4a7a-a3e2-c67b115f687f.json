@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "1efd024a-cd60-4a7a-a3e2-c67b115f687f",
+  "path": "ce-commit",
+  "path_key": "ce-commit",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-commit",
+    "branch": null
+  }
+}

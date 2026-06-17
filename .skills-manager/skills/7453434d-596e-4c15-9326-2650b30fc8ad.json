@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "7453434d-596e-4c15-9326-2650b30fc8ad",
+  "path": "graphify",
+  "path_key": "graphify",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/safishamsi/graphify",
+    "subpath": "graphify",
+    "branch": null
+  }
+}

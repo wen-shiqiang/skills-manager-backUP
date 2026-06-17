@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "21ff6760-4785-4402-a912-4644008dd869",
+  "path": "coding-tutor",
+  "path_key": "coding-tutor",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": null,
+    "branch": null
+  }
+}

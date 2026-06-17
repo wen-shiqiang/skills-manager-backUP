@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "bdd01429-dc2d-44a5-aaf3-799797febb49",
+  "path": "mem-search",
+  "path_key": "mem-search",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "thedotmack/claude-mem/mem-search",
+    "subpath": "plugin\\skills\\mem-search",
+    "branch": null
+  }
+}

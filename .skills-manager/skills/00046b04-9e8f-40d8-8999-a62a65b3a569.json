@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "00046b04-9e8f-40d8-8999-a62a65b3a569",
+  "path": "smart-explore",
+  "path_key": "smart-explore",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\smart-explore",
+    "branch": null
+  }
+}

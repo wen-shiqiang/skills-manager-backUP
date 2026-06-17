@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "5207457b-6a8c-40bd-8959-44b66f7f538c",
+  "path": "custom-skill",
+  "path_key": "custom-skill",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "tests\\fixtures\\custom-paths\\custom-skills\\custom-skill",
+    "branch": null
+  }
+}

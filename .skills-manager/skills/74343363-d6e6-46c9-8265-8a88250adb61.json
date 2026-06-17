@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "74343363-d6e6-46c9-8265-8a88250adb61",
+  "path": "ce-agent-native-architecture",
+  "path_key": "ce-agent-native-architecture",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-agent-native-architecture",
+    "branch": null
+  }
+}

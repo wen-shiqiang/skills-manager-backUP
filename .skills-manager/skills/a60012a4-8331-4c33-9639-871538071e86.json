@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "a60012a4-8331-4c33-9639-871538071e86",
+  "path": "persona-switch",
+  "path_key": "persona-switch",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "import",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

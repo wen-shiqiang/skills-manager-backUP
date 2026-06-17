@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "94bafb08-0b04-40b0-9365-0d7361960237",
+  "path": "oh-my-issues",
+  "path_key": "oh-my-issues",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\oh-my-issues",
+    "branch": null
+  }
+}

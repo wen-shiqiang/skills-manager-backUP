@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "58fa163a-381f-4316-a6d7-2e49e69047bc",
+  "path": "openclaw",
+  "path_key": "openclaw",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "openclaw",
+    "branch": null
+  }
+}

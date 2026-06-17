@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "e3f6818e-c9f3-439c-a37e-aaedcfea74e7",
+  "path": "ce-slack-research",
+  "path_key": "ce-slack-research",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-slack-research",
+    "branch": null
+  }
+}

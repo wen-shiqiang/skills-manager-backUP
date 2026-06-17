@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "c0cfa2c8-b180-41ac-9a59-050fd387fa46",
+  "path": "claude-code-plugin-release",
+  "path_key": "claude-code-plugin-release",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\version-bump",
+    "branch": null
+  }
+}

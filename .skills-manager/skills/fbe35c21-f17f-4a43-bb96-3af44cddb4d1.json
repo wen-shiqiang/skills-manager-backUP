@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "fbe35c21-f17f-4a43-bb96-3af44cddb4d1",
+  "path": "do",
+  "path_key": "do",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\do",
+    "branch": null
+  }
+}

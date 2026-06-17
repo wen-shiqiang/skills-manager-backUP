@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "0cd84ad8-ca9f-4eea-b9dc-61f5047f05c1",
+  "path": "make-plan",
+  "path_key": "make-plan",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\make-plan",
+    "branch": null
+  }
+}

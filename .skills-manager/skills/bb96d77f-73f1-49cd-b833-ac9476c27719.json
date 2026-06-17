@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "bb96d77f-73f1-49cd-b833-ac9476c27719",
+  "path": "pathfinder",
+  "path_key": "pathfinder",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\pathfinder",
+    "branch": null
+  }
+}

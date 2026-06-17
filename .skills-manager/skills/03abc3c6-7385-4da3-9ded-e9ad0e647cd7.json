@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "03abc3c6-7385-4da3-9ded-e9ad0e647cd7",
+  "path": "zoom-out",
+  "path_key": "zoom-out",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "import",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

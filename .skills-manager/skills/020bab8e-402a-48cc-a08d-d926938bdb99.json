@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "020bab8e-402a-48cc-a08d-d926938bdb99",
+  "path": "babysit",
+  "path_key": "babysit",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\babysit",
+    "branch": null
+  }
+}

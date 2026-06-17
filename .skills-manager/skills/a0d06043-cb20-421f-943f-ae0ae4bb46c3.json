@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "a0d06043-cb20-421f-943f-ae0ae4bb46c3",
+  "path": "ce-dogfood-beta",
+  "path_key": "ce-dogfood-beta",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-dogfood-beta",
+    "branch": null
+  }
+}

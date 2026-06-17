@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "14992edf-be34-4f70-b034-f5ee30ae01f2",
+  "path": "timeline-report",
+  "path_key": "timeline-report",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/thedotmack/claude-mem",
+    "subpath": "plugin\\skills\\timeline-report",
+    "branch": null
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "37e58cb0-6cba-45cd-a7b1-c3e6db3ada3e",
+  "path": "ce-agent-native-audit",
+  "path_key": "ce-agent-native-audit",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-agent-native-audit",
+    "branch": null
+  }
+}

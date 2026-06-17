@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "b9865c8d-e40f-4df3-b24c-068999e11f95",
+  "path": "ce-debug",
+  "path_key": "ce-debug",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "plugins\\compound-engineering\\skills\\ce-debug",
+    "branch": null
+  }
+}
