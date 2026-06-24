@@ -8,7 +8,7 @@
   "source": {
     "type": "git",
     "ref": "https://github.com/EveryInc/compound-engineering-plugin",
-    "subpath": "plugins\\compound-engineering\\skills\\ce-agent-native-architecture",
+    "subpath": "skills",
     "branch": null
   }
 }

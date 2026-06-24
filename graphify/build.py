@@ -28,6 +28,8 @@ import sys
 import unicodedata
 from pathlib import Path
 import networkx as nx
+from .ids import normalize_id as _normalize_id
+from .paths import default_graph_json as _default_graph_json
 from .validate import validate_extraction
 
 
@@ -49,20 +51,6 @@ _FILE_TYPE_SYNONYMS = {
     "gotcha": "concept",
     "framework": "concept",
 }
-
-
-def _normalize_id(s: str) -> str:
-    r"""Normalize an ID string the same way extract._make_id does.
-
-    Used to reconcile edge endpoints when the LLM generates IDs with slightly
-    different punctuation or casing than the AST extractor. Must stay in sync
-    with extract._make_id — NFKC normalization, \w with re.UNICODE, underscore
-    collapse, and casefold must all match (#811).
-    """
-    s = unicodedata.normalize("NFKC", s)
-    cleaned = re.sub(r"[^\w]+", "_", s, flags=re.UNICODE)
-    cleaned = re.sub(r"_+", "_", cleaned)
-    return cleaned.strip("_").casefold()
 
 
 def _norm_source_file(p: str | None, root: str | None = None) -> str | None:
@@ -194,8 +182,25 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
         print(f"[graphify] Extraction warning ({len(real_errors)} issues): {real_errors[0]}", file=sys.stderr)
     G: nx.Graph = nx.DiGraph() if directed else nx.Graph()
     for node in extraction.get("nodes", []):
-        if "source_file" in node:
-            node["source_file"] = _norm_source_file(node["source_file"], _root)
+        # Skip dict nodes with a missing or non-hashable id (e.g. a list emitted
+        # by a buggy LLM extraction) so NetworkX add_node never raises
+        # TypeError: unhashable type. Non-dict nodes are deliberately left to
+        # raise as before, so callers that probe build for shape errors (e.g.
+        # the multigraph diagnostic) still observe the malformed shape.
+        if isinstance(node, dict):
+            if "id" not in node:
+                continue
+            try:
+                hash(node["id"])
+            except TypeError:
+                print(
+                    f"[graphify] WARNING: skipping node with non-hashable id "
+                    f"{node['id']!r} (must be a string).",
+                    file=sys.stderr,
+                )
+                continue
+            if "source_file" in node:
+                node["source_file"] = _norm_source_file(node["source_file"], _root)
         G.add_node(node["id"], **{k: v for k, v in node.items() if k != "id"})
     node_set = set(G.nodes())
 
@@ -288,6 +293,19 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
         if "source" not in edge or "target" not in edge:
             continue
         src, tgt = edge["source"], edge["target"]
+        # Skip edges with non-hashable endpoints (e.g. a list emitted by a buggy
+        # LLM extraction) so the `not in node_set` membership test below never
+        # raises TypeError: unhashable type. The validator already reported these.
+        try:
+            hash(src)
+            hash(tgt)
+        except TypeError:
+            print(
+                f"[graphify] WARNING: skipping edge with non-hashable endpoint "
+                f"(source={src!r}, target={tgt!r}).",
+                file=sys.stderr,
+            )
+            continue
         # Remap mismatched IDs via normalization before dropping the edge.
         if src not in node_set:
             src = norm_to_id.get(_normalize_id(src), src)
@@ -296,6 +314,15 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
         if src not in node_set or tgt not in node_set:
             continue  # skip edges to external/stdlib nodes - expected, not an error
         attrs = {k: v for k, v in edge.items() if k not in ("source", "target")}
+        # Backfill source_file from the endpoint nodes (every node carries one).
+        # Semantic/LLM edges occasionally omit it, which downstream validation
+        # flags and leaves query results with no file reference (#1279).
+        if not attrs.get("source_file"):
+            attrs["source_file"] = (
+                G.nodes[src].get("source_file")
+                or G.nodes[tgt].get("source_file")
+                or ""
+            )
         if "source_file" in attrs:
             attrs["source_file"] = _norm_source_file(attrs["source_file"], _root)
         # Drop cross-language INFERRED `calls` edges — same short names (render,
@@ -335,6 +362,12 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
         G.add_edge(src, tgt, **attrs)
     hyperedges = extraction.get("hyperedges", [])
     if hyperedges:
+        # Relativize hyperedge source_file the same way nodes and edges are
+        # (above), so to_json — which has no root and writes G.graph["hyperedges"]
+        # verbatim — never leaks an absolute path from a semantic subagent (#1418).
+        for he in hyperedges:
+            if isinstance(he, dict) and he.get("source_file"):
+                he["source_file"] = _norm_source_file(he["source_file"], _root)
         G.graph["hyperedges"] = hyperedges
     return G
 
@@ -433,7 +466,7 @@ def deduplicate_by_label(nodes: list[dict], edges: list[dict]) -> tuple[list[dic
 
 def build_merge(
     new_chunks: list[dict],
-    graph_path: str | Path = "graphify-out/graph.json",
+    graph_path: str | Path | None = None,
     prune_sources: list[str] | None = None,
     *,
     directed: bool = False,
@@ -443,11 +476,14 @@ def build_merge(
 ) -> nx.Graph:
     """Load existing graph.json, merge new chunks into it, and save back.
 
-    Never replaces - only grows (or prunes deleted-file nodes via prune_sources).
-    Safe to call repeatedly: existing nodes and edges are preserved.
+    Re-extracted files REPLACE their prior contribution: any source_file present
+    in new_chunks is dropped from the loaded graph before merging, so a changed
+    file's stale nodes/edges don't accumulate. Files absent from new_chunks are
+    preserved unchanged; deleted files are removed via prune_sources.
+    Safe to call repeatedly.
     root: if given, absolute source_file paths in new_chunks are made relative (#932).
     """
-    graph_path = Path(graph_path)
+    graph_path = Path(graph_path if graph_path is not None else _default_graph_json())
     if graph_path.exists():
         # Read JSON directly instead of going through node_link_graph().
         # The latter rebuilds an undirected nx.Graph and then enumerating
@@ -462,10 +498,40 @@ def build_merge(
         links_key = "links" if "links" in data else "edges"
         existing_nodes = list(data.get("nodes", []))
         existing_edges = list(data.get(links_key, []))
-        base = [{"nodes": existing_nodes, "edges": existing_edges}]
+        had_graph = True
     else:
         existing_nodes = []
-        base = []
+        existing_edges = []
+        had_graph = False
+
+    # Re-extracted files REPLACE their prior contribution. Every source_file
+    # present in new_chunks is dropped from the loaded base before merging, so a
+    # CHANGED file's stale nodes/edges don't accumulate across incremental
+    # updates. Without this, build() merges old+new for the same file and only
+    # exact-duplicate edges collapse — edges/nodes that disappeared from the new
+    # version survive forever. Brand-new files aren't in base, so this is a no-op
+    # for them; genuinely deleted files are still handled via prune_sources.
+    # Matched in both raw and _norm_source_file form because new_chunks may carry
+    # absolute win32 paths while the stored graph keeps relative posix (#1007).
+    _replace_root = str(Path(root).resolve()) if root is not None else None
+    new_sources: set[str] = set()
+    for ch in new_chunks:
+        for n in ch.get("nodes", []):
+            sf = n.get("source_file")
+            if not sf:
+                continue
+            new_sources.add(sf)
+            norm = _norm_source_file(sf, _replace_root)
+            if norm:
+                new_sources.add(norm)
+    if new_sources:
+        def _kept(item: dict) -> bool:
+            sf = item.get("source_file")
+            return sf not in new_sources and _norm_source_file(sf, _replace_root) not in new_sources
+        existing_nodes = [n for n in existing_nodes if _kept(n)]
+        existing_edges = [e for e in existing_edges if _kept(e)]
+
+    base = [{"nodes": existing_nodes, "edges": existing_edges}] if had_graph else []
 
     all_chunks = base + list(new_chunks)
     G = build(all_chunks, directed=directed, dedup=dedup, dedup_llm_backend=dedup_llm_backend, root=root)

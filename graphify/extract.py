@@ -6,13 +6,14 @@ import json
 import os
 import re
 import sys
-import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 from .cache import load_cached, save_cached
+from .ids import make_id
 from .mcp_ingest import extract_mcp_config, is_mcp_config_path
+from .manifest_ingest import extract_package_manifest, is_package_manifest_path
 
 _RECURSION_LIMIT = 10_000
 
@@ -65,17 +66,14 @@ def _safe_extract(extractor: Callable, path: Path) -> dict:
 def _make_id(*parts: str) -> str:
     r"""Build a stable node ID from one or more name parts.
 
+    Thin wrapper over :func:`graphify.ids.make_id`, the single source of truth
+    shared with ``build._normalize_id`` so the two can no longer drift (#811).
     Preserves Unicode letters/digits (CJK, Cyrillic, Arabic, accented Latin,
-    etc.) so non-ASCII identifiers produce distinct IDs and don't collapse to
-    a single per-file node (#811). NFKC normalization ensures composed and
-    decomposed forms of the same character (e.g. é vs e+combining-acute)
-    produce the same ID. Must stay in sync with build._normalize_id.
+    etc.) so non-ASCII identifiers produce distinct IDs and don't collapse to a
+    single per-file node; NFKC normalization collapses composed/decomposed forms
+    of the same character (e.g. é vs e+combining-acute) to one ID.
     """
-    combined = "_".join(p.strip("_.") for p in parts if p)
-    combined = unicodedata.normalize("NFKC", combined)
-    cleaned = re.sub(r"[^\w]+", "_", combined, flags=re.UNICODE)
-    cleaned = re.sub(r"_+", "_", cleaned)
-    return cleaned.strip("_").casefold()
+    return make_id(*parts)
 
 
 def _file_stem(path: Path) -> str:
@@ -99,6 +97,7 @@ def _file_node_id(rel_path: Path) -> str:
 
 _TSCONFIG_ALIAS_CACHE: dict[str, dict[str, str]] = {}
 _WORKSPACE_PACKAGE_CACHE: dict[str, dict[str, Path]] = {}
+_WORKSPACE_MANIFEST_NAMES = ("pnpm-workspace.yaml", "package.json")
 _JS_CACHE_BYPASS_SUFFIXES = {".js", ".jsx", ".mjs", ".ts", ".tsx", ".vue", ".svelte"}
 _JS_RESOLVE_EXTS = (".ts", ".tsx", ".svelte", ".js", ".jsx", ".mjs")
 _JS_INDEX_FILES = ("index.ts", "index.tsx", "index.svelte", "index.js", "index.jsx", "index.mjs")
@@ -299,10 +298,18 @@ def _find_workspace_root(start_dir: Path) -> Path | None:
     for candidate in [current, *current.parents]:
         if (candidate / "pnpm-workspace.yaml").exists():
             return candidate
+        package_json = candidate / "package.json"
+        if package_json.is_file():
+            try:
+                data = json.loads(package_json.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if "workspaces" in data:
+                return candidate
     return None
 
 
-def _workspace_globs(workspace_file: Path) -> list[str]:
+def _pnpm_workspace_globs(workspace_file: Path) -> list[str]:
     globs: list[str] = []
     in_packages = False
     for raw_line in workspace_file.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -322,16 +329,42 @@ def _workspace_globs(workspace_file: Path) -> list[str]:
     return globs
 
 
+def _workspace_globs(root: Path) -> list[str]:
+    pnpm_workspace = root / "pnpm-workspace.yaml"
+    if pnpm_workspace.exists():
+        return _pnpm_workspace_globs(pnpm_workspace)
+
+    package_json = root / "package.json"
+    try:
+        data = json.loads(package_json.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+    workspaces = data.get("workspaces")
+    if isinstance(workspaces, list):
+        return [item for item in workspaces if isinstance(item, str) and not item.startswith("!")]
+    if isinstance(workspaces, dict):
+        packages = workspaces.get("packages")
+        if isinstance(packages, list):
+            return [item for item in packages if isinstance(item, str) and not item.startswith("!")]
+    return []
+
+
 def _load_workspace_packages(start_dir: Path) -> dict[str, Path]:
     root = _find_workspace_root(start_dir)
     if root is None:
         return {}
-    key = str(root)
+    manifest_mtimes = tuple(
+        (name, (root / name).stat().st_mtime_ns)
+        for name in _WORKSPACE_MANIFEST_NAMES
+        if (root / name).is_file()
+    )
+    key = str((root, manifest_mtimes))
     if key in _WORKSPACE_PACKAGE_CACHE:
         return _WORKSPACE_PACKAGE_CACHE[key]
 
     packages: dict[str, Path] = {}
-    for pattern in _workspace_globs(root / "pnpm-workspace.yaml"):
+    for pattern in _workspace_globs(root):
         package_dirs: list[Path] = [root] if pattern in (".", "./") else list(root.glob(pattern))
         for package_dir in package_dirs:
             manifest = package_dir / "package.json"
@@ -450,6 +483,7 @@ class LanguageConfig:
     call_function_field: str = "function"           # field on call node for callee
     call_accessor_node_types: frozenset = frozenset()  # member/attribute nodes
     call_accessor_field: str = "attribute"          # field on accessor for method name
+    call_accessor_object_field: str = ""            # field on accessor for the receiver/object
 
     # Stop recursion at these types in walk_calls
     function_boundary_types: frozenset = frozenset()
@@ -1052,6 +1086,57 @@ def _swift_property_type_node(property_node):
     for c in property_node.children:
         if c.type == "type_annotation":
             return c
+    return None
+
+
+def _swift_property_name(property_node, source: bytes) -> str | None:
+    """Return the bound name of a Swift property (``let x``/``var x = ...``)."""
+    for c in property_node.children:
+        if c.type == "pattern":
+            for sc in c.children:
+                if sc.type == "simple_identifier":
+                    return _read_text(sc, source)
+        if c.type == "simple_identifier":
+            return _read_text(c, source)
+    return None
+
+
+def _swift_constructor_type(call_node, source: bytes) -> str | None:
+    """If a Swift call expression is a constructor (``Foo()``), return the type name.
+
+    Only upper-cased callees are treated as types so a free-function call like
+    ``configure()`` in an initializer is not mistaken for a constructor.
+    """
+    first = call_node.children[0] if call_node.children else None
+    if first is not None and first.type == "simple_identifier":
+        text = _read_text(first, source)
+        if text and text[:1].isupper():
+            return text
+    return None
+
+
+def _swift_receiver_name(recv_node, source: bytes) -> str | None:
+    """Return the depth-1 receiver name of a Swift member call (``recv.method()``).
+
+    ``vm.update()`` -> ``vm``; ``Type.staticMethod()`` -> ``Type``;
+    ``Singleton.shared.method()`` -> ``Singleton`` (head of the chain);
+    ``self.svc.fetch()`` -> ``svc`` (the property the call is reached through).
+    Returns None for anything deeper, so resolution stays depth-1.
+    """
+    if recv_node is None:
+        return None
+    if recv_node.type == "simple_identifier":
+        return _read_text(recv_node, source)
+    if recv_node.type == "navigation_expression":
+        head = recv_node.children[0] if recv_node.children else None
+        if head is not None and head.type == "simple_identifier":
+            return _read_text(head, source)
+        if head is not None and head.type == "self_expression":
+            for child in recv_node.children:
+                if child.type == "navigation_suffix":
+                    for sc in child.children:
+                        if sc.type == "simple_identifier":
+                            return _read_text(sc, source)
     return None
 
 
@@ -1948,6 +2033,7 @@ _PYTHON_CONFIG = LanguageConfig(
     call_function_field="function",
     call_accessor_node_types=frozenset({"attribute"}),
     call_accessor_field="attribute",
+    call_accessor_object_field="object",
     function_boundary_types=frozenset({"function_definition"}),
     import_handler=_import_python,
 )
@@ -2005,10 +2091,14 @@ _TSX_CONFIG = LanguageConfig(
 
 _JAVA_CONFIG = LanguageConfig(
     ts_module="tree_sitter_java",
-    class_types=frozenset({"class_declaration", "interface_declaration"}),
+    # record_declaration shares class_declaration's name/body/interfaces fields,
+    # so it becomes a first-class type node instead of an isolated file (#1373).
+    class_types=frozenset({"class_declaration", "interface_declaration", "record_declaration"}),
     function_types=frozenset({"method_declaration", "constructor_declaration"}),
     import_types=frozenset({"import_declaration"}),
-    call_types=frozenset({"method_invocation"}),
+    # object_creation_expression (`new Foo(...)`) is handled by a dedicated Java
+    # branch in walk_calls below — its callee is in the `type` field, not `name`.
+    call_types=frozenset({"method_invocation", "object_creation_expression"}),
     call_function_field="name",
     call_accessor_node_types=frozenset(),
     function_boundary_types=frozenset({"method_declaration", "constructor_declaration"}),
@@ -2328,6 +2418,14 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
     # extensions don't (file stem is part of the id), so they're collected here
     # for a corpus-level merge after every file has been parsed.
     swift_extensions: list[dict] = []
+    # #1356: call expressions in property/field initializers (e.g.
+    # `let vm = VM()`) live outside function bodies, so the call-walk never
+    # reaches them. Collect (owner_nid, call_node) here and walk them too.
+    initializer_nodes: list[tuple[str, object]] = []
+    # #1356: per-file map of local name -> declared type (properties + params),
+    # threaded out as `swift_type_table` so member calls (`vm.update()`) can be
+    # resolved to the receiver's real definition in _resolve_swift_member_calls.
+    type_table: dict[str, str] = {}
 
     csharp_interface_names: set[str] = set()
     if config.ts_module == "tree_sitter_c_sharp":
@@ -2371,7 +2469,21 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
             return nid
         nid = _make_id(name)
         if nid not in seen_ids:
-            add_node(nid, name, line)
+            # The name isn't defined in this file, so this is a cross-file reference
+            # (e.g. a `Thing` type annotation imported from another module). Emit a
+            # SOURCELESS stub — like the inheritance-base path below — so the
+            # corpus-level rewire can collapse it onto the real definition. A sourced
+            # stub here makes _disambiguate_colliding_node_ids bake the referencing
+            # file's path (with extension) into the id and blocks the rewire, which is
+            # the phantom-duplicate-node bug (#1402).
+            seen_ids.add(nid)
+            nodes.append({
+                "id": nid,
+                "label": name,
+                "file_type": "code",
+                "source_file": "",
+                "source_location": "",
+            })
         return nid
 
     file_nid = _make_id(str(path))
@@ -2910,9 +3022,10 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
         if (config.ts_module == "tree_sitter_swift"
                 and t == "property_declaration"
                 and parent_class_nid):
+            line = node.start_point[0] + 1
+            prop_type: str | None = None
             type_anno = _swift_property_type_node(node)
             if type_anno is not None:
-                line = node.start_point[0] + 1
                 refs: list[tuple[str, str]] = []
                 _swift_collect_type_refs(type_anno, source, False, refs)
                 for ref_name, role in refs:
@@ -2920,6 +3033,22 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
                     target_nid = ensure_named_node(ref_name, line)
                     if target_nid != parent_class_nid:
                         add_edge(parent_class_nid, target_nid, "references", line, context=ctx)
+                    if prop_type is None and role == "type":
+                        prop_type = ref_name
+            # #1356 Stage 1: walk the initializer so a constructor call
+            # (`let vm = VM()`) produces a calls edge. #1356 Stage 2a: when the
+            # property has no type annotation, infer its type from the
+            # constructor so `vm.update()` later resolves to VM.
+            for child in node.children:
+                if child.type in config.call_types:
+                    initializer_nodes.append((parent_class_nid, child))
+                    if prop_type is None:
+                        ctor = _swift_constructor_type(child, source)
+                        if ctor is not None:
+                            prop_type = ctor
+            prop_name = _swift_property_name(node, source)
+            if prop_name and prop_type:
+                type_table[prop_name] = prop_type
             return
 
         if (config.ts_module == "tree_sitter_scala"
@@ -3160,11 +3289,22 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
                     type_node = p.child_by_field_name("type")
                     refs: list[tuple[str, str]] = []
                     _swift_collect_type_refs(type_node, source, False, refs)
+                    param_type: str | None = None
                     for ref_name, role in refs:
                         ctx = "generic_arg" if role == "generic_arg" else "parameter_type"
                         target_nid = ensure_named_node(ref_name, line)
                         if target_nid != func_nid:
                             add_edge(func_nid, target_nid, "references", line, context=ctx)
+                        if param_type is None and role == "type":
+                            param_type = ref_name
+                    # #1356 Stage 2a: record param name -> type (flat per-file
+                    # table; later params with the same name win, which is fine
+                    # for the depth-1 member-call resolution we do).
+                    if param_type:
+                        name_node = p.child_by_field_name("name")
+                        pname = _read_text(name_node, source) if name_node else None
+                        if pname:
+                            type_table[pname] = param_type
                 return_node = node.child_by_field_name("return_type")
                 if return_node is not None:
                     refs = []
@@ -3362,6 +3502,8 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
 
             callee_name: str | None = None
             is_member_call: bool = False
+            swift_receiver: str | None = None
+            member_receiver: str | None = None
 
             # Special handling per language
             if config.ts_module == "tree_sitter_swift":
@@ -3377,6 +3519,10 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
                                 for sc in child.children:
                                     if sc.type == "simple_identifier":
                                         callee_name = _read_text(sc, source)
+                        # #1356: capture the receiver so the cross-file pass can
+                        # resolve it through the file's type table.
+                        recv_node = first.children[0] if first.children else None
+                        swift_receiver = _swift_receiver_name(recv_node, source)
             elif config.ts_module == "tree_sitter_kotlin":
                 # Kotlin: first child may be simple_identifier/identifier or
                 # navigation_expression. PyPI's `tree_sitter_kotlin` produces
@@ -3452,6 +3598,16 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
                         name = func_node.child_by_field_name("field") or func_node.child_by_field_name("name")
                         if name:
                             callee_name = _read_text(name, source)
+            elif config.ts_module == "tree_sitter_java" and node.type == "object_creation_expression":
+                # `new Foo(...)` — the constructed type is in the `type` field, not
+                # `name`, so the generic path misses it (#1373). Reduce a qualified
+                # / generic type to its simple name (com.a.Foo<Bar> -> Foo). Java
+                # method_invocation still flows through the generic branch below.
+                type_node = node.child_by_field_name("type")
+                if type_node is not None:
+                    raw = _read_text(type_node, source).split("<", 1)[0].strip()
+                    if raw:
+                        callee_name = raw.rsplit(".", 1)[-1]
             else:
                 # Generic: get callee from call_function_field
                 func_node = node.child_by_field_name(config.call_function_field) if config.call_function_field else None
@@ -3464,12 +3620,29 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
                             attr = func_node.child_by_field_name(config.call_accessor_field)
                             if attr:
                                 callee_name = _read_text(attr, source)
+                        if config.call_accessor_object_field:
+                            # Capture a simple-identifier receiver (e.g. `ClassName`
+                            # in `ClassName.method()`) so cross-file member-call
+                            # resolution can resolve qualified class-method calls
+                            # (#1446). Chained receivers (`a.b.method()`) are skipped.
+                            obj = func_node.child_by_field_name(config.call_accessor_object_field)
+                            if obj is not None and obj.type == "identifier":
+                                member_receiver = _read_text(obj, source)
                     else:
                         # Try reading the node directly (e.g. Java name field is the callee)
                         callee_name = _read_text(func_node, source)
 
             if callee_name and callee_name not in _LANGUAGE_BUILTIN_GLOBALS:
-                tgt_nid = label_to_nid.get(callee_name)
+                # A capitalized-receiver member call (`ClassName.method()`) must defer
+                # to receiver-based cross-file resolution: the bare method name can
+                # collide with an in-file node — even the calling method itself, when a
+                # viewset action delegates to a same-named service action — which would
+                # match `tgt_nid == caller_nid` and silently drop the call (#1446). The
+                # captured receiver is resolved later in _resolve_python_member_calls.
+                if is_member_call and member_receiver and member_receiver[:1].isupper():
+                    tgt_nid = None
+                else:
+                    tgt_nid = label_to_nid.get(callee_name)
                 if tgt_nid and tgt_nid != caller_nid:
                     pair = (caller_nid, tgt_nid)
                     if pair not in seen_call_pairs:
@@ -3493,6 +3666,7 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
                         "is_member_call": is_member_call,
                         "source_file": str_path,
                         "source_location": f"L{node.start_point[0] + 1}",
+                        "receiver": swift_receiver or member_receiver,
                     })
 
             # Helper function calls: config('foo.bar') → uses_config edge to "foo"
@@ -3625,6 +3799,12 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
     for caller_nid, body_node in function_bodies:
         walk_calls(body_node, caller_nid)
 
+    # #1356: walk property/field initializers (collected above). walk_calls
+    # self-guards against re-entering function bodies and dedups via
+    # seen_call_pairs, so a closure inside an initializer is not double-walked.
+    for owner_nid, init_node in initializer_nodes:
+        walk_calls(init_node, owner_nid)
+
     # ── Event listener pass ───────────────────────────────────────────────────
     seen_listen_pairs: set[tuple[str, str]] = set()
     for event_name, listener_name, line in pending_listen_edges:
@@ -3658,6 +3838,8 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
     result = {"nodes": nodes, "edges": clean_edges, "raw_calls": raw_calls}
     if swift_extensions:
         result["swift_extensions"] = swift_extensions
+    if type_table:
+        result["swift_type_table"] = {"path": str_path, "table": type_table}
     return result
 
 
@@ -5673,7 +5855,21 @@ def extract_julia(path: Path) -> dict:
             return nid
         nid = _make_id(name)
         if nid not in seen_ids:
-            add_node(nid, name, line)
+            # The name isn't defined in this file, so this is a cross-file reference
+            # (e.g. a `Thing` type annotation imported from another module). Emit a
+            # SOURCELESS stub — like the inheritance-base path below — so the
+            # corpus-level rewire can collapse it onto the real definition. A sourced
+            # stub here makes _disambiguate_colliding_node_ids bake the referencing
+            # file's path (with extension) into the id and blocks the rewire, which is
+            # the phantom-duplicate-node bug (#1402).
+            seen_ids.add(nid)
+            nodes.append({
+                "id": nid,
+                "label": name,
+                "file_type": "code",
+                "source_file": "",
+                "source_location": "",
+            })
         return nid
 
     def _func_name_from_signature(sig_node) -> str | None:
@@ -5955,7 +6151,21 @@ def extract_fortran(path: Path) -> dict:
             return nid
         nid = _make_id(name)
         if nid not in seen_ids:
-            add_node(nid, name, line)
+            # The name isn't defined in this file, so this is a cross-file reference
+            # (e.g. a `Thing` type annotation imported from another module). Emit a
+            # SOURCELESS stub — like the inheritance-base path below — so the
+            # corpus-level rewire can collapse it onto the real definition. A sourced
+            # stub here makes _disambiguate_colliding_node_ids bake the referencing
+            # file's path (with extension) into the id and blocks the rewire, which is
+            # the phantom-duplicate-node bug (#1402).
+            seen_ids.add(nid)
+            nodes.append({
+                "id": nid,
+                "label": name,
+                "file_type": "code",
+                "source_file": "",
+                "source_location": "",
+            })
         return nid
 
     def emit_signature_refs(scope_node, fn_nid: str, is_function: bool) -> None:
@@ -6530,7 +6740,21 @@ def extract_rust(path: Path) -> dict:
             return nid
         nid = _make_id(name)
         if nid not in seen_ids:
-            add_node(nid, name, line)
+            # The name isn't defined in this file, so this is a cross-file reference
+            # (e.g. a `Thing` type annotation imported from another module). Emit a
+            # SOURCELESS stub — like the inheritance-base path below — so the
+            # corpus-level rewire can collapse it onto the real definition. A sourced
+            # stub here makes _disambiguate_colliding_node_ids bake the referencing
+            # file's path (with extension) into the id and blocks the rewire, which is
+            # the phantom-duplicate-node bug (#1402).
+            seen_ids.add(nid)
+            nodes.append({
+                "id": nid,
+                "label": name,
+                "file_type": "code",
+                "source_file": "",
+                "source_location": "",
+            })
         return nid
 
     def emit_param_return_refs(func_node, func_nid: str, line: int) -> None:
@@ -6966,6 +7190,8 @@ def extract_powershell(path: Path) -> dict:
         "using", "return", "if", "else", "elseif", "foreach", "for",
         "while", "do", "switch", "try", "catch", "finally", "throw",
         "break", "continue", "exit", "param", "begin", "process", "end",
+        # Import commands — handled as import edges, not function calls
+        "import-module",
     })
 
     def _find_script_block_body(node):
@@ -6983,7 +7209,21 @@ def extract_powershell(path: Path) -> dict:
             return nid
         nid = _make_id(name)
         if nid not in seen_ids:
-            add_node(nid, name, line)
+            # The name isn't defined in this file, so this is a cross-file reference
+            # (e.g. a `Thing` type annotation imported from another module). Emit a
+            # SOURCELESS stub — like the inheritance-base path below — so the
+            # corpus-level rewire can collapse it onto the real definition. A sourced
+            # stub here makes _disambiguate_colliding_node_ids bake the referencing
+            # file's path (with extension) into the id and blocks the rewire, which is
+            # the phantom-duplicate-node bug (#1402).
+            seen_ids.add(nid)
+            nodes.append({
+                "id": nid,
+                "label": name,
+                "file_type": "code",
+                "source_file": "",
+                "source_location": "",
+            })
         return nid
 
     def _ps_type_name(type_literal_node) -> str | None:
@@ -7015,6 +7255,10 @@ def extract_powershell(path: Path) -> dict:
                 body = _find_script_block_body(node)
                 if body:
                     function_bodies.append((func_nid, body))
+                    # Also walk the body during the main pass so that
+                    # Import-Module / dot-source inside functions emit
+                    # file-level imports_from edges (#1331).
+                    walk(body, parent_class_nid)
             return
 
         if t == "class_statement":
@@ -7085,6 +7329,31 @@ def extract_powershell(path: Path) -> dict:
             return
 
         if t == "command":
+            # Dot-sourcing: `. ./Shared.psm1`
+            # Uses command_invokation_operator '.' + command_name_expr (not command_name)
+            invoke_op = next(
+                (c for c in node.children if c.type == "command_invokation_operator"), None
+            )
+            if invoke_op is not None and _read_text(invoke_op, source).strip() == ".":
+                name_expr = next(
+                    (c for c in node.children if c.type == "command_name_expr"), None
+                )
+                if name_expr is not None:
+                    name_node = next(
+                        (c for c in name_expr.children if c.type == "command_name"), None
+                    )
+                    if name_node:
+                        raw_path = _read_text(name_node, source)
+                        # Strip relative path prefix (./ or .\ or just the dot)
+                        module_stem = re.sub(r'^[./\\]+', '', raw_path)
+                        # Drop extension to get bare module name
+                        module_stem = re.sub(r'\.[^.]+$', '', module_stem).replace('\\', '/')
+                        module_name = module_stem.split('/')[-1]
+                        if module_name:
+                            add_edge(file_nid, _make_id(module_name), "imports_from",
+                                     node.start_point[0] + 1)
+                return
+
             cmd_name_node = next((c for c in node.children if c.type == "command_name"), None)
             if cmd_name_node:
                 cmd_text = _read_text(cmd_name_node, source).lower()
@@ -7101,6 +7370,29 @@ def extract_powershell(path: Path) -> dict:
                         module_name = module_tokens[-1].split(".")[-1]
                         add_edge(file_nid, _make_id(module_name), "imports_from",
                                  node.start_point[0] + 1)
+                elif cmd_text == "import-module":
+                    # Collect generic_token args; skip command_parameter flags like -Name
+                    # The module name is the first generic_token (or the one after -Name)
+                    module_name: str | None = None
+                    expect_name = False
+                    for child in node.children:
+                        if child.type != "command_elements":
+                            continue
+                        for el in child.children:
+                            if el.type == "command_parameter":
+                                param_text = _read_text(el, source).lstrip("-").lower()
+                                expect_name = param_text in ("name", "n")
+                            elif el.type == "generic_token":
+                                token = _read_text(el, source)
+                                if module_name is None or expect_name:
+                                    module_name = token
+                                    expect_name = False
+                    if module_name:
+                        # Strip extension; keep only the stem for the node ID
+                        bare = re.sub(r'\.[^.]+$', '', module_name).split('/')[-1].split('\\')[-1]
+                        if bare:
+                            add_edge(file_nid, _make_id(bare), "imports_from",
+                                     node.start_point[0] + 1)
             return
 
         for child in node.children:
@@ -7143,8 +7435,190 @@ def extract_powershell(path: Path) -> dict:
         walk_calls(body_node, caller_nid)
 
     clean_edges = [e for e in edges if e["source"] in seen_ids and
-                   (e["target"] in seen_ids or e["relation"] == "imports_from")]
+                   (e["target"] in seen_ids or e["relation"] in ("imports_from", "imports"))]
     return {"nodes": nodes, "edges": clean_edges, "raw_calls": raw_calls}
+
+
+# ── PowerShell manifest (.psd1) ──────────────────────────────────────────────
+
+# Keys in a .psd1 whose values are module names/paths we treat as imports.
+_PSD1_IMPORT_KEYS = frozenset({"RootModule", "NestedModules", "RequiredModules"})
+
+
+def _psd1_collect_string_literals(node, source: bytes) -> list[str]:
+    """Recursively collect all string_literal text values under *node*."""
+    results: list[str] = []
+
+    def _walk(n) -> None:
+        if n.type == "string_literal":
+            raw = source[n.start_byte:n.end_byte].decode(errors="replace")
+            # Strip surrounding quote chars (' or ")
+            results.append(raw.strip("'\""))
+            return
+        for child in n.children:
+            _walk(child)
+
+    _walk(node)
+    return results
+
+
+def _psd1_module_name(raw: str) -> str:
+    """Derive a bare module name from a raw string value.
+
+    e.g. 'MyModule.psm1' → 'MyModule', './sub/Util.psm1' → 'Util', 'PSReadLine' → 'PSReadLine'
+    """
+    # Strip path prefix and extension
+    name = raw.replace("\\", "/").split("/")[-1]
+    name = re.sub(r"\.[^.]+$", "", name)  # remove last extension
+    return name.strip()
+
+
+def extract_powershell_manifest(path: Path) -> dict:
+    """Extract module dependency edges from a PowerShell .psd1 manifest file.
+
+    .psd1 files are PowerShell data hashtables, not scripts. tree-sitter-powershell
+    parses them correctly (they are syntactically valid PS). We walk the AST looking
+    for RootModule, NestedModules, and RequiredModules keys and emit imports_from
+    edges for every referenced module.
+
+    RequiredModules supports two forms:
+      - Simple string: 'PSReadLine'
+      - Module specification: @{ ModuleName = 'Pester'; ModuleVersion = '5.0' }
+    For the hashtable form we only follow the ModuleName key.
+    """
+    try:
+        import tree_sitter_powershell as tsps
+        from tree_sitter import Language, Parser
+    except ImportError:
+        return {"nodes": [], "edges": [], "error": "tree_sitter_powershell not installed"}
+
+    try:
+        language = Language(tsps.language())
+        parser = Parser(language)
+        source = path.read_bytes()
+        tree = parser.parse(source)
+        root = tree.root_node
+    except Exception as e:
+        return {"nodes": [], "edges": [], "error": str(e)}
+
+    str_path = str(path)
+    nodes: list[dict] = []
+    edges: list[dict] = []
+    seen_ids: set[str] = set()
+
+    def add_node(nid: str, label: str, line: int) -> None:
+        if nid not in seen_ids:
+            seen_ids.add(nid)
+            nodes.append({"id": nid, "label": label, "file_type": "code",
+                          "source_file": str_path, "source_location": f"L{line}"})
+
+    def add_import_edge(src: str, module_raw: str, line: int) -> None:
+        name = _psd1_module_name(module_raw)
+        if not name:
+            return
+        tgt_nid = _make_id(name)
+        edges.append({
+            "source": src,
+            "target": tgt_nid,
+            "relation": "imports_from",
+            "confidence": "EXTRACTED",
+            "source_file": str_path,
+            "source_location": f"L{line}",
+            "weight": 1.0,
+            "context": "import",
+        })
+
+    file_nid = _make_id(str(path))
+    add_node(file_nid, path.name, 1)
+
+    def walk_manifest(node) -> None:
+        """Walk the AST and emit edges for import-relevant hash_entry nodes."""
+        if node.type != "hash_entry":
+            for child in node.children:
+                walk_manifest(child)
+            return
+
+        # Identify the key
+        key_node = next((c for c in node.children if c.type == "key_expression"), None)
+        if key_node is None:
+            return
+        key_text = source[key_node.start_byte:key_node.end_byte].decode(errors="replace").strip()
+
+        if key_text not in _PSD1_IMPORT_KEYS:
+            # Still recurse in case there are nested hashes (e.g. ModuleVersion entries
+            # contain sub-hashes, but we only care about top-level keys for imports)
+            return
+
+        line = node.start_point[0] + 1
+        value_node = next((c for c in node.children if c.type == "pipeline"), None)
+        if value_node is None:
+            return
+
+        if key_text == "RootModule":
+            # Value is a single string
+            strings = _psd1_collect_string_literals(value_node, source)
+            for s in strings:
+                add_import_edge(file_nid, s, line)
+
+        elif key_text == "NestedModules":
+            # Value is a string or @('a', 'b', ...) array — collect all string literals
+            strings = _psd1_collect_string_literals(value_node, source)
+            for s in strings:
+                add_import_edge(file_nid, s, line)
+
+        elif key_text == "RequiredModules":
+            # Two forms:
+            # 1) 'SimpleModule' — direct string literals in the array
+            # 2) @{ ModuleName = 'Foo'; ModuleVersion = '2.0' } — use ModuleName only
+            #
+            # Strategy: walk the value for hash_entry nodes whose key is 'ModuleName';
+            # collect their string values. For the remaining string_literal nodes that
+            # are NOT inside a hash_entry subtree, treat them as simple module names.
+            module_name_strings: list[str] = []
+            inside_hash_entries: set[int] = set()  # byte offsets of handled strings
+
+            def find_modulename_entries(n) -> None:
+                if n.type == "hash_entry":
+                    sub_key = next((c for c in n.children if c.type == "key_expression"), None)
+                    if sub_key is not None:
+                        sk_text = source[sub_key.start_byte:sub_key.end_byte].decode(errors="replace").strip()
+                        # Collect strings inside *all* sub-keys so we can exclude them
+                        for c in n.children:
+                            if c.type == "pipeline":
+                                for s_node in _collect_string_nodes(c):
+                                    inside_hash_entries.add(s_node.start_byte)
+                        if sk_text == "ModuleName":
+                            for c in n.children:
+                                if c.type == "pipeline":
+                                    for s in _psd1_collect_string_literals(c, source):
+                                        module_name_strings.append(s)
+                    return  # don't recurse further into this hash_entry
+                for child in n.children:
+                    find_modulename_entries(child)
+
+            def _collect_string_nodes(n):
+                """Return all string_literal nodes in subtree."""
+                if n.type == "string_literal":
+                    yield n
+                    return
+                for child in n.children:
+                    yield from _collect_string_nodes(child)
+
+            find_modulename_entries(value_node)
+
+            # Now gather direct string literals not inside hash entries
+            direct_strings: list[str] = []
+            for s_node in _collect_string_nodes(value_node):
+                if s_node.start_byte not in inside_hash_entries:
+                    raw = source[s_node.start_byte:s_node.end_byte].decode(errors="replace")
+                    direct_strings.append(raw.strip("'\""))
+
+            for s in direct_strings + module_name_strings:
+                add_import_edge(file_nid, s, line)
+
+    walk_manifest(root)
+
+    return {"nodes": nodes, "edges": edges, "raw_calls": []}
 
 
 # ── Cross-file import resolution ──────────────────────────────────────────────
@@ -8769,6 +9243,197 @@ def _resolve_java_type_references(
     ]
 
 
+def _resolve_swift_member_calls(
+    per_file: list[dict],
+    all_nodes: list[dict],
+    all_edges: list[dict],
+) -> None:
+    """Resolve cross-file Swift member calls (``recv.method()``) to the real
+    definition of the receiver's type (#1356).
+
+    The shared cross-file call pass drops every ``is_member_call`` because a bare
+    method name (``update``) collides across the corpus and inflates god-nodes
+    (#543/#1219). Swift extractors record the receiver of each member call and a
+    per-file ``name -> type`` table (``swift_type_table``); this pass uses them to
+    type the receiver, then emits an edge ONLY when that type name resolves to
+    exactly one definition. Everything it adds is INFERRED (type inference, not an
+    explicit import), and the line-12503 drop stays intact: this is purely
+    additive and fires only on receiver-typed Swift calls.
+
+    Must run after id-disambiguation so node ids and caller_nids are final.
+    """
+    type_table_by_file: dict[str, dict[str, str]] = {}
+    for result in per_file:
+        tt = result.get("swift_type_table")
+        if tt and tt.get("path"):
+            type_table_by_file[tt["path"]] = tt.get("table", {})
+    if not type_table_by_file:
+        return
+
+    def _key(label: str) -> str:
+        return re.sub(r"[^a-zA-Z0-9]+", "", str(label)).lower()
+
+    # A genuine Swift type is the target of a `contains` edge from its file node.
+    # Bare type references create a same-label shadow node (via ensure_named_node)
+    # that carries a source_file but is NOT contained; excluding non-contained
+    # nodes keeps that shadow from making a real type name look ambiguous.
+    contained = {e.get("target") for e in all_edges if e.get("relation") == "contains"}
+
+    # Type name -> definition node ids (real, source-backed, type-like defs only).
+    # len != 1 is the god-node guard: an ambiguous type name bails.
+    type_def_nids: dict[str, list[str]] = {}
+    node_by_id: dict[str, dict] = {}
+    for n in all_nodes:
+        node_by_id[n.get("id")] = n
+        if n.get("source_file") and n.get("id") in contained and _is_type_like_definition(n):
+            type_def_nids.setdefault(_key(n.get("label", "")), []).append(n["id"])
+
+    # (type_node_id, method_key) -> method_node_id, from `method` edges.
+    method_index: dict[tuple[str, str], str] = {}
+    for e in all_edges:
+        if e.get("relation") != "method":
+            continue
+        src, tgt = e.get("source"), e.get("target")
+        tnode = node_by_id.get(tgt)
+        if tnode is not None:
+            method_index[(src, _key(tnode.get("label", "")))] = tgt
+
+    all_raw_calls: list[dict] = []
+    for result in per_file:
+        all_raw_calls.extend(result.get("raw_calls", []))
+
+    existing_pairs = {(e.get("source"), e.get("target")) for e in all_edges}
+    for rc in all_raw_calls:
+        if not rc.get("is_member_call"):
+            continue
+        receiver = rc.get("receiver")
+        callee = rc.get("callee")
+        if not receiver or not callee:
+            continue
+        # Determine the receiver's type. An upper-cased receiver is itself a type
+        # (Type.staticMethod(), Singleton.shared.x()); otherwise look it up in the
+        # declaring file's local type table.
+        if receiver[:1].isupper():
+            type_name = receiver
+        else:
+            type_name = type_table_by_file.get(rc.get("source_file", ""), {}).get(receiver)
+        if not type_name:
+            continue
+        type_defs = type_def_nids.get(_key(type_name), [])
+        if len(type_defs) != 1:  # ambiguous or absent -> bail (god-node guard)
+            continue
+        type_nid = type_defs[0]
+        caller = rc.get("caller_nid")
+        if not caller:
+            continue
+        method_nid = method_index.get((type_nid, _key(callee)))
+        target = method_nid or type_nid
+        relation = "calls" if method_nid else "references"
+        if target == caller or (caller, target) in existing_pairs:
+            continue
+        existing_pairs.add((caller, target))
+        all_edges.append({
+            "source": caller,
+            "target": target,
+            "relation": relation,
+            "context": "call",
+            "confidence": "INFERRED",
+            "confidence_score": 0.8,
+            "source_file": rc.get("source_file", ""),
+            "source_location": rc.get("source_location"),
+            "weight": 1.0,
+        })
+
+
+def _resolve_python_member_calls(
+    per_file: list[dict],
+    all_nodes: list[dict],
+    all_edges: list[dict],
+) -> None:
+    """Resolve cross-file Python qualified class-method calls (``ClassName.method()``)
+    to the class-qualified method node (#1446).
+
+    The shared cross-file call pass drops every ``is_member_call`` because a bare
+    method name (``log``) collides across the corpus and inflates god-nodes
+    (#543/#1219). That guard is right for *instance* calls (``obj.method()``) but
+    misses *class-qualified* calls (``ClassName.method()``), where the receiver is
+    an explicitly-named class — an exact, unambiguous reference. This pass uses the
+    receiver captured by the extractor, and when it is a capitalized name resolving
+    to exactly one class node that owns the called method, emits an EXTRACTED
+    ``calls`` edge. Purely additive (only member calls the shared pass skipped),
+    with a single-definition god-node guard.
+
+    Must run after id-disambiguation so node ids and caller_nids are final.
+    """
+    def _key(label: str) -> str:
+        return re.sub(r"[^a-zA-Z0-9]+", "", str(label)).lower()
+
+    node_by_id: dict[str, dict] = {n.get("id"): n for n in all_nodes}
+
+    # A class owns methods: it is the source of one or more `method` edges. Index
+    # class label -> owning class node ids (len != 1 is the god-node guard), and
+    # (class_node_id, method_key) -> method_node_id.
+    class_def_nids: dict[str, list[str]] = {}
+    method_index: dict[tuple[str, str], str] = {}
+    for e in all_edges:
+        if e.get("relation") != "method":
+            continue
+        src, tgt = e.get("source"), e.get("target")
+        cnode = node_by_id.get(src)
+        if cnode is not None:
+            class_def_nids.setdefault(_key(cnode.get("label", "")), []).append(src)
+        tnode = node_by_id.get(tgt)
+        if tnode is not None:
+            method_index[(src, _key(tnode.get("label", "")))] = tgt
+    if not class_def_nids:
+        return
+    # A class with N methods produced N entries; collapse to a unique set.
+    for k in list(class_def_nids):
+        class_def_nids[k] = sorted(set(class_def_nids[k]))
+
+    all_raw_calls: list[dict] = []
+    for result in per_file:
+        all_raw_calls.extend(result.get("raw_calls", []))
+
+    existing_pairs = {(e.get("source"), e.get("target")) for e in all_edges}
+    for rc in all_raw_calls:
+        if not rc.get("is_member_call"):
+            continue
+        receiver = rc.get("receiver")
+        callee = rc.get("callee")
+        caller = rc.get("caller_nid")
+        if not receiver or not callee or not caller:
+            continue
+        # Only a capitalized receiver is treated as a class reference, so an
+        # instance/module (`self`, `obj`, `config`) never collides with a
+        # same-spelled class via the case-folding key.
+        if not receiver[:1].isupper():
+            continue
+        class_nids = class_def_nids.get(_key(receiver), [])
+        if len(class_nids) != 1:  # absent or ambiguous -> bail (god-node guard)
+            continue
+        method_nid = method_index.get((class_nids[0], _key(callee)))
+        if not method_nid or method_nid == caller:
+            continue
+        if (caller, method_nid) in existing_pairs:
+            continue
+        existing_pairs.add((caller, method_nid))
+        # EXTRACTED: a qualified `ClassName.method()` is an explicit, unambiguous
+        # static reference (unlike a bare instance member call), and the class
+        # resolved to exactly one definition that owns the method.
+        all_edges.append({
+            "source": caller,
+            "target": method_nid,
+            "relation": "calls",
+            "context": "call",
+            "confidence": "EXTRACTED",
+            "confidence_score": 1.0,
+            "source_file": rc.get("source_file", ""),
+            "source_location": rc.get("source_location"),
+            "weight": 1.0,
+        })
+
+
 def extract_objc(path: Path) -> dict:
     """Extract interfaces, implementations, protocols, methods, and imports from .m/.mm/.h files."""
     try:
@@ -8825,7 +9490,21 @@ def extract_objc(path: Path) -> dict:
             return nid
         nid = _make_id(name)
         if nid not in seen_ids:
-            add_node(nid, name, line)
+            # The name isn't defined in this file, so this is a cross-file reference
+            # (e.g. a `Thing` type annotation imported from another module). Emit a
+            # SOURCELESS stub — like the inheritance-base path below — so the
+            # corpus-level rewire can collapse it onto the real definition. A sourced
+            # stub here makes _disambiguate_colliding_node_ids bake the referencing
+            # file's path (with extension) into the id and blocks the rewire, which is
+            # the phantom-duplicate-node bug (#1402).
+            seen_ids.add(nid)
+            nodes.append({
+                "id": nid,
+                "label": name,
+                "file_type": "code",
+                "source_file": "",
+                "source_location": "",
+            })
         return nid
 
     def walk(node, parent_nid: str | None = None) -> None:
@@ -9183,6 +9862,56 @@ def extract_elixir(path: Path) -> dict:
     return {"nodes": nodes, "edges": clean_edges, "raw_calls": raw_calls, "input_tokens": 0, "output_tokens": 0}
 
 
+# Inline markdown link: [text](target "optional title"). The negative lookbehind
+# excludes images (![alt](src)). The target stops at whitespace/closing paren so
+# an optional "title" after the URL is dropped; an optional <...> wrapper is too.
+_MD_INLINE_LINK_RE = re.compile(r'(?<!\!)\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+[^)]*)?\)')
+# Reference-style link definition line: [label]: target "optional title"
+_MD_REF_DEF_RE = re.compile(r'^\s{0,3}\[[^\]]+\]:\s*<?([^\s>]+)>?')
+# Obsidian-style wikilink: [[target]] / [[target|alias]] / [[target#anchor]].
+_MD_WIKILINK_RE = re.compile(r'(?<!\!)\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]')
+
+# Extensions graphify creates document file nodes for. A link to one of these
+# resolves to that file's node; links to code/assets are skipped (left to the
+# language extractors).
+_MD_LINKABLE_EXTS = {".md", ".mdx", ".qmd", ".markdown", ".rst", ".txt"}
+
+
+def _resolve_markdown_link(raw: str, source_dir: Path) -> "Path | None":
+    """Resolve a markdown link target to the absolute path of a sibling document.
+
+    Returns the resolved (normalized, not necessarily existing) path when the
+    target is a *local* relative/absolute file-path link to a document, or None
+    when it should be skipped: external URLs (http/https/mailto/protocol-
+    relative/data), pure in-page anchors (``#section``), and links to non-doc
+    file types (code/assets are handled by their own extractors).
+
+    The anchor fragment (``#section``) and query (``?x=1``) are stripped before
+    resolution so ``./repo.md#setup`` resolves to the same node as ``./repo.md``.
+    Extension-less targets (typical of wikilinks) are treated as sibling ``.md``.
+    """
+    target = raw.strip()
+    if not target:
+        return None
+    # Drop anchor / query so #section links still resolve to the target doc.
+    target = target.split("#", 1)[0].split("?", 1)[0].strip()
+    if not target:
+        return None
+    low = target.lower()
+    if "://" in target or low.startswith(("mailto:", "tel:", "//", "data:")):
+        return None
+    suffix = Path(target).suffix.lower()
+    if suffix == "":
+        target = target + ".md"
+        suffix = ".md"
+    if suffix not in _MD_LINKABLE_EXTS:
+        return None
+    candidate = Path(target)
+    if not candidate.is_absolute():
+        candidate = source_dir / candidate
+    return Path(os.path.normpath(str(candidate)))
+
+
 def extract_markdown(path: Path) -> dict:
     """Extract structural nodes and edges from a Markdown file.
 
@@ -9194,6 +9923,13 @@ def extract_markdown(path: Path) -> dict:
     - file --contains--> heading
     - parent heading --contains--> child heading (nesting by level)
     - heading --references--> other node (when backtick `Name` matches a known pattern)
+    - file --references--> linked document, for inline ``[text](./other.md)``,
+      reference-style ``[label]: ./other.md`` and ``[[wikilink]]`` links, so a
+      hub doc (``index.md`` / ``table-of-contents.md``) becomes a real hub node
+      instead of an under-connected orphan (#1376). The target node ID is built
+      from the resolved target path with the same recipe as the target file's
+      own node, so the edge merges into that node (no ghost node). External
+      URLs, in-page anchors, images and non-document targets are skipped.
 
     Fenced code blocks (``` ... ```) are skipped during parsing so their
     contents don't get treated as headings, but no node is emitted for
@@ -9228,6 +9964,26 @@ def extract_markdown(path: Path) -> dict:
     file_nid = _make_id(str(path))
     add_node(file_nid, path.name, 1)
 
+    source_dir = path.parent
+    # Dedup link edges by resolved target node so a hub doc that links to the
+    # same sibling many times yields one edge, not N (keeps weights meaningful).
+    linked_targets: set[str] = set()
+
+    def add_link(raw: str, line: int) -> None:
+        resolved = _resolve_markdown_link(raw, source_dir)
+        if resolved is None:
+            return
+        # Build the target ID with the SAME recipe as the target file's own
+        # node (_make_id(str(path)) at extract time, canonicalized to
+        # _file_node_id(rel) by the extract() post-pass). Using the absolute
+        # resolved path means both endpoints get remapped identically, so the
+        # edge merges into the existing doc node instead of spawning a ghost.
+        tgt_nid = _make_id(str(resolved))
+        if tgt_nid == file_nid or tgt_nid in linked_targets:
+            return
+        linked_targets.add(tgt_nid)
+        add_edge(file_nid, tgt_nid, "references", line)
+
     # Track heading stack for nesting: [(level, nid), ...]
     heading_stack: list[tuple[int, str]] = []
     in_code_block = False
@@ -9245,6 +10001,17 @@ def extract_markdown(path: Path) -> dict:
 
         if in_code_block:
             continue
+
+        # Markdown links -> document references (#1376). Scanned on every
+        # non-fenced line (including heading lines, which the heading branch
+        # below `continue`s past) so links anywhere in the doc are captured.
+        for m in _MD_INLINE_LINK_RE.finditer(line_text):
+            add_link(m.group(1), line_num)
+        for m in _MD_WIKILINK_RE.finditer(line_text):
+            add_link(m.group(1), line_num)
+        ref_def = _MD_REF_DEF_RE.match(line_text)
+        if ref_def:
+            add_link(ref_def.group(1), line_num)
 
         # Detect headings: # Heading, ## Heading, etc.
         heading_match = re.match(r'^(#{1,6})\s+(.+)', line_text)
@@ -11725,6 +12492,8 @@ _DISPATCH: dict[str, Any] = {
     ".cc": extract_cpp,
     ".cxx": extract_cpp,
     ".hpp": extract_cpp,
+    ".cu": extract_cpp,
+    ".cuh": extract_cpp,
     ".rb": extract_ruby,
     ".cs": extract_csharp,
     ".kt": extract_kotlin,
@@ -11738,6 +12507,7 @@ _DISPATCH: dict[str, Any] = {
     ".zig": extract_zig,
     ".ps1": extract_powershell,
     ".psm1": extract_powershell,
+    ".psd1": extract_powershell_manifest,
     ".ex": extract_elixir,
     ".exs": extract_elixir,
     ".m": extract_objc,
@@ -11805,6 +12575,11 @@ def _get_extractor(path: Path) -> Any | None:
     # (servers, commands, packages, env vars) instead of opaque JSON keys.
     if is_mcp_config_path(path):
         return extract_mcp_config
+    # Package manifests (apm.yml, pyproject.toml, go.mod, pom.xml) → a canonical
+    # package node + depends_on edges, by filename before generic suffix dispatch
+    # (#1377). apm.yml would otherwise be a .yml document handled by the LLM.
+    if is_package_manifest_path(path):
+        return extract_package_manifest
     return _DISPATCH.get(path.suffix)
 
 
@@ -11892,16 +12667,17 @@ def _extract_parallel(
     try:
         with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as pool:
             futures = {
-                pool.submit(_extract_single_file, item): item[0] for item in work_items
+                pool.submit(_extract_single_file, item): pos
+                for pos, item in enumerate(work_items)
             }
             for future in concurrent.futures.as_completed(futures):
                 try:
                     idx, result = future.result()
                     per_file[idx] = result
                 except Exception as exc:
-                    idx = futures[future]
+                    pos = futures[future]
                     print(
-                        f"  warning: worker failed for {work_items[idx][1]}: {exc}",
+                        f"  warning: worker failed for {work_items[pos][1]}: {exc}",
                         file=sys.stderr, flush=True,
                     )
                 done_count += 1
@@ -12109,6 +12885,12 @@ def extract(
             sf = n.get("source_file")
             if not sf:
                 continue
+            # Package nodes carry a canonical name-keyed id (pkg_<name>) that must
+            # stay identical across every manifest that references the package, so
+            # they are exempt from the file-stem prefix remap (#1377), like the
+            # type=module anchors (#1327).
+            if n.get("type") == "package":
+                continue
             try:
                 entry = prefix_remap.get(Path(sf).resolve())
             except Exception:
@@ -12294,6 +13076,27 @@ def extract(
                 "source_location": rc.get("source_location"),
                 "weight": 1.0,
             })
+
+    # Cross-file Swift member-call resolution (#1356). Runs after the shared call
+    # pass so node ids/caller_nids are final; additive (only receiver-typed calls
+    # the shared pass skipped), with a single-definition god-node guard.
+    swift_paths = [p for p in paths if p.suffix == ".swift"]
+    if swift_paths:
+        try:
+            _resolve_swift_member_calls(per_file, all_nodes, all_edges)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Swift member-call resolution failed, skipping: %s", exc)
+
+    # Cross-file Python qualified class-method resolution (#1446). Same shape as the
+    # Swift pass: additive, runs after id-disambiguation, single-definition guard.
+    py_paths = [p for p in paths if p.suffix == ".py"]
+    if py_paths:
+        try:
+            _resolve_python_member_calls(per_file, all_nodes, all_edges)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Python member-call resolution failed, skipping: %s", exc)
 
     # Relativize source_file fields so paths are portable across machines (#555)
     for item in all_nodes + all_edges:
