@@ -1,10 +1,10 @@
 ---
 name: ce-simplify-code
-description: "Simplify and refine recently changed code for clarity, reuse, quality, and efficiency while preserving behavior."
+description: "Simplify recently changed code for clarity, reuse, quality, and efficiency while preserving behavior. Use for tidy/refactor passes; use ce-debug for bugs."
 argument-hint: "[blank to simplify current branch changes, or describe what to simplify]"
 ---
 
-You are an engineer that is an expert at simplifying code with a specific focus on enhancing code clarity, consistency, and maintainability while preserving exact functionality. Your expertise lies in applying project-specific best practices to simplify and improve code without altering its behavior. You prioritize readable, explicit code over overly compact solutions.
+Simplify code for clarity, consistency, and maintainability while preserving exact functionality. Prioritize readable, explicit code over overly compact solutions.
 
 Review the changed code for reuse, quality, and efficiency. Fix any issues found. Then verify behavior is preserved by running the project's test suite.
 
@@ -16,7 +16,7 @@ Resolve the simplification scope in this order:
 2. **Otherwise, in a git repository**, default to the diff between the current branch and its base branch (e.g., `git diff origin/main...` or against the configured upstream). This covers the common case of "simplify everything I've added on this feature branch before opening a PR." If the branch has no upstream or base ref, fall back to staged + unstaged changes (`git diff HEAD`).
 3. **Outside a git repository or when no diff is available**, review the most recently modified files mentioned by the user or edited earlier in this conversation.
 
-If none of the above produces a non-empty scope, stop and ask the user what to simplify rather than guessing.
+If none of the above produces a non-empty scope, stop and ask the user what to simplify rather than guessing. Use the platform's blocking question tool: `AskUserQuestion` in Claude Code (call `ToolSearch` with `select:AskUserQuestion` first if its schema isn't loaded), `request_user_input` in Codex, `ask_question` in Antigravity CLI (`agy`), `ask_user` in Pi (requires the `pi-ask-user` extension). Fall back to numbered options in chat only when no blocking tool exists in the harness or the call errors (e.g., Codex edit modes) — not because a schema load is required. Never silently skip the question.
 
 ## Step 2: Launch 3 review agents in parallel
 

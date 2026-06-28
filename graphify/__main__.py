@@ -405,6 +405,10 @@ _READ_SETTINGS_HOOK = {
     # python3 (already a graphify dependency), the shell is POSIX, and every branch
     # fails open, so a legitimate read always goes through. Reading the graph's own
     # report under graphify-out/ is suppressed so it never starts a feedback loop.
+    # The extension test compares each value's real trailing extension (segment
+    # after the last '/' then after the last '.') against exts -- not a substring
+    # scan, which both missed framework files like .astro and false-matched .json
+    # against .js (the substring '.js' is inside '.json').
     "matcher": "Read|Glob",
     "hooks": [
         {
@@ -414,9 +418,11 @@ _READ_SETTINGS_HOOK = {
                 "import json,sys;"
                 "d=json.load(sys.stdin);"
                 "t=d.get('tool_input',d);"
-                "s=(str(t.get('file_path') or '')+' '+str(t.get('pattern') or '')+' '+str(t.get('path') or '')).lower().replace(chr(92),'/');"
-                "exts=('.py','.js','.ts','.tsx','.jsx','.go','.rs','.java','.rb','.c','.h','.cpp','.hpp','.cc','.cs','.kt','.swift','.php','.scala','.lua','.sh','.md','.rst','.txt','.mdx');"
-                "sys.stdout.write('1' if 'graphify-out/' not in s and any(e in s for e in exts) else '')\" 2>/dev/null || true); "
+                "exts=('.py','.js','.ts','.tsx','.jsx','.astro','.vue','.svelte','.go','.rs','.java','.rb','.c','.h','.cpp','.hpp','.cc','.cs','.kt','.swift','.php','.scala','.lua','.sh','.md','.rst','.txt','.mdx');"
+                "vals=[str(t.get('file_path') or ''),str(t.get('pattern') or ''),str(t.get('path') or '')];"
+                "j=' '.join(vals).lower().replace(chr(92),'/');"
+                "tails=[('.'+x.rsplit('.',1)[-1]) for v in vals if v for x in [v.lower().replace(chr(92),'/').rsplit('/',1)[-1]] if '.' in x];"
+                "sys.stdout.write('1' if 'graphify-out/' not in j and any(tl in exts for tl in tails) else '')\" 2>/dev/null || true); "
                 "if [ \"$HIT\" = 1 ] && [ -f graphify-out/graph.json ]; then "
                 r"""echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"MANDATORY: graphify-out/graph.json exists. You MUST run graphify before reading source files. Use: `graphify query \"<question>\"` (scoped subgraph), `graphify explain \"<concept>\"`, or `graphify path \"<A>\" \"<B>\"`. Only read raw files after graphify has oriented you, or to modify/debug specific lines. This rule applies to subagents too — include it in every subagent prompt involving code exploration."}}'; """
                 "fi || true"
@@ -2227,9 +2233,14 @@ def main() -> None:
         print("    --no-label              keep 'Community N' placeholders (skip LLM community naming)")
         print("    --backend=<name>        backend to use for community naming (default: auto-detect)")
         print("    --model=<name>          model to use for community naming")
+        print("    --max-concurrency=N     parallel community-labeling LLM calls (default 4; forced to 1 for ollama/claude-cli)")
+        print("    --batch-size=N          communities per labeling LLM call (default 100)")
         print("  label <path>            (re)name communities with the configured LLM backend, regenerate report")
+        print("    --missing-only         keep existing labels and only name missing/placeholder communities")
         print("    --backend=<name>        backend to use (default: auto-detect from API keys)")
         print("    --model=<name>          model to use for community naming")
+        print("    --max-concurrency=N     parallel labeling LLM calls (default 4; forced to 1 for ollama/claude-cli)")
+        print("    --batch-size=N          communities per labeling LLM call (default 100)")
         print("  query \"<question>\"       BFS traversal of graph.json for a question")
         print("    --dfs                   use depth-first instead of breadth-first")
         print("    --context C             explicit edge-context filter (repeatable)")
@@ -2246,7 +2257,17 @@ def main() -> None:
             "    --type T                query type: query|path_query|explain (default: query)"
         )
         print("    --nodes N1 N2 ...       source node labels cited in the answer")
+        print("    --outcome O             work-memory signal: useful|dead_end|corrected")
+        print("    --correction TEXT       what the right answer was (pairs with --outcome corrected)")
         print("    --memory-dir DIR        memory directory (default: graphify-out/memory)")
+        print("  reflect                 aggregate graphify-out/memory/ outcomes into a deterministic lessons doc")
+        print("    --memory-dir DIR        memory directory (default: graphify-out/memory)")
+        print("    --out FILE              output path (default: graphify-out/reflections/LESSONS.md)")
+        print("    --graph PATH            graph.json, for community grouping + dropping stale nodes (optional)")
+        print("    --analysis PATH         .graphify_analysis.json (optional, auto-detected next to --graph)")
+        print("    --labels PATH           .graphify_labels.json (optional, auto-detected next to --graph)")
+        print("    --half-life-days N      signal weight halves every N days (default 30)")
+        print("    --min-corroboration N   distinct useful results to prefer a node (default 2)")
         print("  check-update <path>     check needs_update flag and notify if semantic re-extraction is pending (cron-safe)")
         print("  tree                    emit a D3 v7 collapsible-tree HTML for graph.json")
         print("    --graph PATH            path to graph.json (default graphify-out/graph.json)")
@@ -2906,7 +2927,8 @@ def main() -> None:
             )
         )
     elif cmd == "save-result":
-        # graphify save-result --question Q --answer A --type T [--nodes N1 N2 ...]
+        # graphify save-result --question Q --answer A [--type T] [--nodes N1 N2 ...]
+        #                      [--outcome useful|dead_end|corrected] [--correction TEXT]
         import argparse as _ap
 
         p = _ap.ArgumentParser(prog="graphify save-result")
@@ -2914,6 +2936,8 @@ def main() -> None:
         p.add_argument("--answer", required=True)
         p.add_argument("--type", dest="query_type", default="query")
         p.add_argument("--nodes", nargs="*", default=[])
+        p.add_argument("--outcome", choices=("useful", "dead_end", "corrected"), default=None)
+        p.add_argument("--correction", default=None)
         p.add_argument("--memory-dir", default=str(Path(_GRAPHIFY_OUT) / "memory"))
         opts = p.parse_args(sys.argv[2:])
         from graphify.ingest import save_query_result as _sqr
@@ -2924,8 +2948,67 @@ def main() -> None:
             memory_dir=Path(opts.memory_dir),
             query_type=opts.query_type,
             source_nodes=opts.nodes or None,
+            outcome=opts.outcome,
+            correction=opts.correction,
         )
         print(f"Saved to {out}")
+    elif cmd == "reflect":
+        import argparse as _ap
+
+        p = _ap.ArgumentParser(prog="graphify reflect")
+        p.add_argument("--memory-dir", default=str(Path(_GRAPHIFY_OUT) / "memory"))
+        p.add_argument(
+            "--out",
+            default=str(Path(_GRAPHIFY_OUT) / "reflections" / "LESSONS.md"),
+        )
+        p.add_argument("--graph", default=None)
+        p.add_argument("--analysis", default=None)
+        p.add_argument("--labels", default=None)
+        p.add_argument("--half-life-days", type=float, default=30.0,
+                       help="signal weight halves every N days (default 30)")
+        p.add_argument("--min-corroboration", type=int, default=2,
+                       help="distinct useful results to promote a node to preferred (default 2)")
+        p.add_argument("--if-stale", action="store_true",
+                       help="skip when LESSONS.md is already newer than every input "
+                            "(e.g. the git hook just refreshed it)")
+        opts = p.parse_args(sys.argv[2:])
+        from graphify.reflect import reflect as _reflect, lessons_fresh as _lessons_fresh
+
+        graph_arg = opts.graph
+        if graph_arg is None:
+            default_graph = Path(_GRAPHIFY_OUT) / "graph.json"
+            if default_graph.exists():
+                graph_arg = str(default_graph)
+
+        _gp = Path(graph_arg) if graph_arg else None
+        _analysis_path = None
+        _labels_path = None
+        if _gp is not None:
+            _analysis_path = Path(opts.analysis) if opts.analysis else (
+                _gp.parent / ".graphify_analysis.json")
+            _labels_path = Path(opts.labels) if opts.labels else (
+                _gp.parent / ".graphify_labels.json")
+
+        if opts.if_stale and _lessons_fresh(
+            Path(opts.out), Path(opts.memory_dir), _gp, _analysis_path, _labels_path
+        ):
+            print(f"Lessons already up to date -> {opts.out} (skipped; omit --if-stale to force)")
+        else:
+            out_path, agg = _reflect(
+                memory_dir=Path(opts.memory_dir),
+                out_path=Path(opts.out),
+                graph_path=_gp,
+                analysis_path=_analysis_path,
+                labels_path=_labels_path,
+                half_life_days=opts.half_life_days,
+                min_corroboration=opts.min_corroboration,
+            )
+            c = agg["counts"]
+            print(
+                f"Reflected {agg['total']} memories "
+                f"({c['useful']} useful, {c['dead_end']} dead ends, "
+                f"{c['corrected']} corrected) -> {out_path}"
+            )
     elif cmd == "path":
         if len(sys.argv) < 4:
             print(
@@ -3236,6 +3319,7 @@ def main() -> None:
         # the optional positional path can appear in any order (#724).
         no_viz = "--no-viz" in sys.argv
         no_label = "--no-label" in sys.argv
+        missing_only = "--missing-only" in sys.argv
         _backend_arg = next((a for a in sys.argv if a.startswith("--backend=")), None)
         label_backend = _backend_arg.split("=", 1)[1] if _backend_arg else None
         _model_arg = next((a for a in sys.argv if a.startswith("--model=")), None)
@@ -3247,6 +3331,8 @@ def main() -> None:
         graph_override: Path | None = None
         co_resolution: float = 1.0
         co_exclude_hubs: float | None = None
+        label_max_concurrency: int = 4
+        label_batch_size: int = 100
         i_arg = 0
         while i_arg < len(args):
             a = args[i_arg]
@@ -3268,7 +3354,15 @@ def main() -> None:
                 co_exclude_hubs = float(args[i_arg + 1]); i_arg += 2
             elif a.startswith("--exclude-hubs="):
                 co_exclude_hubs = float(a.split("=", 1)[1]); i_arg += 1
-            elif a == "--no-viz" or a.startswith("--min-community-size="):
+            elif a == "--max-concurrency" and i_arg + 1 < len(args):
+                label_max_concurrency = int(args[i_arg + 1]); i_arg += 2
+            elif a.startswith("--max-concurrency="):
+                label_max_concurrency = int(a.split("=", 1)[1]); i_arg += 1
+            elif a == "--batch-size" and i_arg + 1 < len(args):
+                label_batch_size = int(args[i_arg + 1]); i_arg += 2
+            elif a.startswith("--batch-size="):
+                label_batch_size = int(a.split("=", 1)[1]); i_arg += 1
+            elif a in ("--no-viz", "--missing-only") or a.startswith("--min-community-size="):
                 i_arg += 1
             elif a.startswith("--"):
                 i_arg += 1
@@ -3340,9 +3434,19 @@ def main() -> None:
         out = watch_path / _GRAPHIFY_OUT
         out.mkdir(parents=True, exist_ok=True)
         labels_path = out / ".graphify_labels.json"
+        existing_labels: dict[int, str] = {}
+        if labels_path.exists():
+            try:
+                existing_labels = {
+                    int(k): v
+                    for k, v in json.loads(labels_path.read_text(encoding="utf-8")).items()
+                    if isinstance(v, str)
+                }
+            except Exception:
+                existing_labels = {}
         if labels_path.exists() and not force_relabel:
             try:
-                labels = {int(k): v for k, v in json.loads(labels_path.read_text(encoding="utf-8")).items()}
+                labels = existing_labels
             except Exception:
                 labels = {cid: f"Community {cid}" for cid in communities}
         elif no_label and not force_relabel:
@@ -3356,9 +3460,23 @@ def main() -> None:
             print("Labeling communities...")
             # The final labels (LLM or placeholder fallback) are persisted to
             # .graphify_labels.json by the unconditional write below.
-            labels, _ = generate_community_labels(
-                G, communities, backend=label_backend, model=label_model, gods=gods
+            label_communities_input = communities
+            labels = {}
+            if missing_only:
+                labels = {
+                    cid: existing_labels.get(cid, f"Community {cid}")
+                    for cid in communities
+                }
+                label_communities_input = {
+                    cid: members
+                    for cid, members in communities.items()
+                    if cid not in existing_labels or existing_labels.get(cid) == f"Community {cid}"
+                }
+            generated_labels, _ = generate_community_labels(
+                G, label_communities_input, backend=label_backend, model=label_model, gods=gods,
+                max_concurrency=label_max_concurrency, batch_size=label_batch_size,
             )
+            labels.update(generated_labels)
         questions = suggest_questions(G, communities, labels)
         tokens = {"input": 0, "output": 0}
         from graphify.export import _git_head as _gh
