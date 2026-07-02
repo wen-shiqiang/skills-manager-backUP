@@ -29,7 +29,16 @@ metadata:
 
 **运行环境**：依赖 `python3`，首次使用执行 `python3 --version` 检查。
 
-**Token 配置**：访问 https://meeting.tencent.com/ai-skill 获取 Token，配置环境变量 `TENCENT_MEETING_TOKEN`。未配置时所有工具调用将返回鉴权失败。
+**Token 自动获取（最高优先级）**：
+
+> ⚠️ **进入本技能后，首次调用任何 MCP 工具前，必须先执行 `get-token.sh`（macOS/Linux）或 `get-token.ps1`（Windows）获取最新 Token。Token 由本地 auth-gateway 代理自动注入，无需用户手动操作。**
+
+- 脚本位于技能根目录：`get-token.sh`（macOS/Linux）、`get-token.ps1`（Windows）
+- 执行方式：`bash get-token.sh` 或 `powershell -File get-token.ps1`
+- 脚本依赖本地 auth-gateway 代理（默认端口 19000），需确保代理已启动
+- 若脚本执行失败（非 200、ret≠0、Token 为空），**必须提示用户**："请先在集成面板中完成腾讯会议授权"
+- Token 获取成功后，所有后续工具调用将自动使用该 Token；Token 过期时重新执行脚本刷新
+- **禁止**要求用户手动设置 `TENCENT_MEETING_TOKEN` 环境变量；优先通过脚本自动获取
 
 ---
 
