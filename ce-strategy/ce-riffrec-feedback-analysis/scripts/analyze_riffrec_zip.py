@@ -88,10 +88,11 @@ def read_json(path: Path, default: Any) -> Any:
 def safe_extract(zip_path: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path) as archive:
+        dest_resolved = dest.resolve()
         for member in archive.infolist():
             member_path = dest / member.filename
             resolved = member_path.resolve()
-            if not str(resolved).startswith(str(dest.resolve())):
+            if not resolved.is_relative_to(dest_resolved):
                 raise RuntimeError(f"Unsafe zip member path: {member.filename}")
             if member.is_dir():
                 resolved.mkdir(parents=True, exist_ok=True)

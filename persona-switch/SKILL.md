@@ -1,8 +1,6 @@
 ---
 name: persona-switch
-description: |
-  切换 agent 的人设（soul.md）。支持三套预设人设与原有人设之间自由切换。
-  触发词：切换人设、persona-switch、赛博朋友、温柔伴侣、创始人龙虾。
+description: 切换或恢复 agent 人设（soul.md）。用于用户请求切换人设、更换性格角色、选择预设角色（赛博朋友/温柔伴侣/创始人龙虾）、恢复默认人设，或发送 /persona-switch 指令时触发。
 ---
 
 # persona-switch
@@ -64,9 +62,9 @@ persona-switch/
 - `founder_lobster` → Vibe: "毒舌靠谱、情绪化、有态度但干净"
 - `gentle_companion` → Vibe: "温和、倾听、托住空间、不急不躁"
 
-更新方式：读取 IDENTITY.md，找到 `- **Vibe:**` 行，替换为对应的新 Vibe 值，其他内容保持不变。
+更新方式：读取 IDENTITY.md，找到 `- Vibe:` 行，替换为对应的新 Vibe 值，其他内容保持不变。
 
-**Name 保护规则：** 读取 IDENTITY.md 中的 `- **Name:**` 行，如果该行已经填写了具体名字（即不为空、不是默认占位文本 `_(pick something you like)_`），则**不得修改 Name 字段**，保持用户已设置的名字不变。仅当 Name 字段为空或仍为默认占位文本时，才可以根据人设更新 Name。
+**Name 保护规则：** 读取 IDENTITY.md 中的 `- Name:` 行，如果该行已经填写了具体名字（即不为空、不是默认占位文本 `_(pick something you like)_`），则**不得修改 Name 字段**，保持用户已设置的名字不变。仅当 Name 字段为空或仍为默认占位文本时，才可以根据人设更新 Name。
 
 **第五步：确认**
 
