@@ -32,11 +32,15 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import signal
 import subprocess
 import tempfile
-import time
+import threading
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 # Conclusions that mean "this check needs attention" (failing states).
 FAILING = {"FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"}
@@ -45,17 +49,16 @@ DISPOSITION_OPEN = "open"
 DISPOSITION_NEEDS_HUMAN = "needs-human"
 DISPOSITION_DISPATCHED = "dispatched"
 
+MANAGER_CONFIRMED = "confirmed"
+MANAGER_ABSENT = "absent"
+MANAGER_PROBE_ERROR = "probe-error"
+RELATIONSHIP_DEPENDENT = "dependent"
+RELATIONSHIP_INDEPENDENT = "independent"
+RELATIONSHIP_PROBE_ERROR = "probe-error"
+
 # A present in-progress review signal (👀) blocks a merge-ready read — but never terminally: after
 # this much quiet a stale/never-cleared signal is ignored so the PR can still be called ready.
 REVIEW_INPROGRESS_MAX_WAIT = 900
-
-# Pure CI/status bots whose top-level comments are never review feedback (coverage deltas,
-# deploy previews). Code-review bots (Codex, CodeRabbit, Greptile, etc.) are deliberately NOT
-# here — their comments ARE feedback and must reach ce-resolve-pr-feedback. Matched case-folded
-# against both the bare login and its "[bot]" suffix form.
-CI_BOT_LOGINS = {
-    "github-actions", "codecov", "codecov-commenter", "netlify", "vercel",
-}
 
 # Trajectory check-history states (persisted, compared by ==).
 CHECK_UNKNOWN = "unknown"
@@ -68,6 +71,10 @@ STREAM_REVIEW = "review"
 # workflow-registration lag or a paths-filtered run), but bound growth: evict entries
 # unseen for this many ticks.
 CHECK_HISTORY_TTL = 30
+
+
+class _WatchSuperseded(Exception):
+    """Internal control flow: this watch lost ownership and must unwind immediately."""
 
 
 def _now():
@@ -131,16 +138,247 @@ def _host_args(host):
     return ["--hostname", host] if host else []
 
 
+def _stack_schema_unavailable(stderr):
+    """Recognize only GraphQL schema errors for the private-preview PullRequest stack fields."""
+    unavailable_markers = ("doesn't exist on type", "does not exist on type",
+                           "cannot query field", "unknown field")
+    for line in (stderr or "").splitlines():
+        lowered = line.lower()
+        if ("pullrequest" in lowered
+                and re.search(r"\bstack(?:entry)?\b", lowered)
+                and any(marker in lowered for marker in unavailable_markers)):
+            return True
+    return False
+
+
+def _fetch_default_branch(owner, name, host=None):
+    """Read the default branch without relying on private-preview GraphQL fields."""
+    result = _run(["gh", "api", *_host_args(host), f"repos/{owner}/{name}",
+                   "--jq", ".default_branch"])
+    if result.returncode != 0:
+        return None
+    branch = result.stdout.strip()
+    return branch if branch and branch != "null" else None
+
+
 def _thread_identity(t):
     """The remote-truth identity of a thread's latest state."""
     return (t.get("last_comment_id"), t.get("last_comment_at"))
+
+
+def _default_pr_chain():
+    """Backward-compatible neutral shape for injected/older snapshots with no chain facts."""
+    return {
+        "manager_status": MANAGER_ABSENT,
+        "manager_source": None,
+        "relationship_status": RELATIONSHIP_INDEPENDENT,
+        "trunk": None,
+        "current_branch": None,
+        "target_position": None,
+        "target_needs_rebase": None,
+        "upstack_needs_rebase": [],
+        "entries": [],
+        "parent_prs": [],
+        "dependent_prs": [],
+    }
+
+
+def _pr_summary(pr):
+    if not pr:
+        return None
+    return {k: pr.get(k) for k in ("number", "url", "state", "isDraft", "baseRefName", "headRefName")
+            if pr.get(k) is not None}
+
+
+def _pr_url_identity(url):
+    """Normalize a GitHub PR URL to a repository-scoped identity tuple."""
+    if not isinstance(url, str):
+        return None
+    try:
+        parsed = urlsplit(url.strip())
+        parts = [part for part in parsed.path.split("/") if part]
+        if (parsed.scheme.lower() not in ("http", "https") or not parsed.netloc
+                or len(parts) < 4 or parts[-2].lower() != "pull"):
+            return None
+        number = int(parts[-1])
+    except (TypeError, ValueError):
+        return None
+    return (parsed.netloc.lower(), parts[-4].lower(), parts[-3].lower(), number)
+
+
+def _chain_from_entries(entries, pr, source, trunk=None, current_branch=None,
+                        manager_id=None, manager_number=None, target_url=None):
+    """Normalize an ordered manager-owned chain and locate the requested PR within it."""
+    target_identity = _pr_url_identity(target_url) if target_url is not None else None
+    target_index = next((i for i, e in enumerate(entries)
+                         if (e.get("number") == pr or str(e.get("number")) == str(pr))
+                         and (target_url is None
+                              or (target_identity is not None
+                                  and _pr_url_identity(e.get("url")) == target_identity))), None)
+    if target_index is None:
+        return None
+    target = entries[target_index]
+    upstack_stale = [
+        {k: e.get(k) for k in ("number", "position", "name", "url") if e.get(k) is not None}
+        for e in entries[target_index + 1:] if e.get("needs_rebase") is True
+    ]
+    chain = _default_pr_chain()
+    chain.update({
+        "manager_status": MANAGER_CONFIRMED,
+        "manager_source": source,
+        "manager_id": manager_id,
+        "manager_number": manager_number,
+        "relationship_status": RELATIONSHIP_DEPENDENT if len(entries) > 1 else RELATIONSHIP_INDEPENDENT,
+        "trunk": trunk,
+        "current_branch": current_branch,
+        "target_position": target.get("position") or target_index + 1,
+        "target_needs_rebase": target.get("needs_rebase"),
+        "upstack_needs_rebase": upstack_stale,
+        "entries": entries,
+        "parent_prs": [_pr_summary(entries[target_index - 1])] if target_index > 0 else [],
+        "dependent_prs": [_pr_summary(e) for e in entries[target_index + 1:]],
+    })
+    return chain
+
+
+def _chain_from_stack_view(raw, pr, target_url):
+    entries = []
+    for index, branch in enumerate((raw or {}).get("branches") or []):
+        remote_pr = branch.get("pr") or {}
+        entries.append({
+            "position": index + 1,
+            "name": branch.get("name"),
+            "head": branch.get("head"),
+            "base": branch.get("base"),
+            "is_current": bool(branch.get("isCurrent")),
+            "is_merged": bool(branch.get("isMerged")),
+            "is_queued": bool(branch.get("isQueued")),
+            "needs_rebase": branch.get("needsRebase"),
+            "number": remote_pr.get("number"),
+            "url": remote_pr.get("url"),
+            "state": remote_pr.get("state"),
+            "isDraft": remote_pr.get("isDraft"),
+        })
+    return _chain_from_entries(entries, pr, "gh-stack", (raw or {}).get("trunk"),
+                               (raw or {}).get("currentBranch"), target_url=target_url)
+
+
+def _fetch_graphql_stack(pr, owner, name, host=None):
+    """Read-only remote membership fallback. A successful null stack is distinct from failure."""
+    query = """
+query($owner:String!,$repo:String!,$pr:Int!){
+  repository(owner:$owner,name:$repo){
+    defaultBranchRef{ name }
+    pullRequest(number:$pr){
+    stackEntry{ position }
+    stack{ id number size baseRefName
+      entries(first:100){ nodes{ position pullRequest{
+        number url state isDraft baseRefName headRefName headRefOid
+      } } }
+    }
+  } }
+}"""
+    args = ["gh", "api", "graphql", *_host_args(host), "-f", f"owner={owner}", "-f", f"repo={name}",
+            "-F", f"pr={pr}", "-f", f"query={query}"]
+    r = _run(args)
+    if r.returncode != 0:
+        if _stack_schema_unavailable(r.stderr):
+            default_branch = _fetch_default_branch(owner, name, host)
+            if default_branch:
+                return MANAGER_ABSENT, None, default_branch
+        return MANAGER_PROBE_ERROR, None, None
+    try:
+        repository = json.loads(r.stdout)["data"]["repository"]
+        default_branch = (repository.get("defaultBranchRef") or {}).get("name")
+        node = repository["pullRequest"]
+        stack = node.get("stack")
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return MANAGER_PROBE_ERROR, None, None
+    if stack is None:
+        return MANAGER_ABSENT, None, default_branch
+    entries = []
+    for raw in (stack.get("entries") or {}).get("nodes") or []:
+        remote_pr = raw.get("pullRequest") or {}
+        entries.append({
+            "position": raw.get("position"),
+            "name": remote_pr.get("headRefName"),
+            "head": remote_pr.get("headRefOid"),
+            "base_ref_name": remote_pr.get("baseRefName"),
+            "needs_rebase": None,
+            **(_pr_summary(remote_pr) or {}),
+        })
+    chain = _chain_from_entries(entries, pr, "graphql", stack.get("baseRefName"),
+                                manager_id=stack.get("id"), manager_number=stack.get("number"))
+    return ((MANAGER_CONFIRMED, chain, default_branch) if chain
+            else (MANAGER_PROBE_ERROR, None, default_branch))
+
+
+def _manual_relationships(pr, repo, base_ref_name, head_ref_name, owner, name,
+                          host=None, default_branch=None):
+    """Find ordinary parent/children with narrow read-only branch filters."""
+    repo_ref = repo or f"{owner}/{name}"
+    if host and repo_ref.count("/") == 1:
+        repo_ref = f"{host}/{repo_ref}"
+    fields = "number,url,state,isDraft,baseRefName,headRefName"
+    parent_result = None
+    if base_ref_name and base_ref_name != default_branch:
+        parent_result = _run(["gh", "pr", "list", "--repo", repo_ref, "--state", "all",
+                              "--head", base_ref_name, "--limit", "20", "--json", fields])
+    dependent_result = _run(["gh", "pr", "list", "--repo", repo_ref, "--state", "open",
+                             "--base", head_ref_name or "", "--limit", "100", "--json", fields])
+    if ((parent_result is not None and parent_result.returncode != 0)
+            or dependent_result.returncode != 0):
+        return RELATIONSHIP_PROBE_ERROR, [], []
+    try:
+        parent_candidates = json.loads(parent_result.stdout) or [] if parent_result else []
+        dependent_candidates = json.loads(dependent_result.stdout) or []
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return RELATIONSHIP_PROBE_ERROR, [], []
+    parents = [_pr_summary(p) for p in parent_candidates
+               if p.get("number") != pr and p.get("headRefName") == base_ref_name]
+    dependents = [_pr_summary(p) for p in dependent_candidates
+                  if p.get("number") != pr and p.get("state") == "OPEN"
+                  and p.get("baseRefName") == head_ref_name]
+    status = RELATIONSHIP_DEPENDENT if parents or dependents else RELATIONSHIP_INDEPENDENT
+    return status, parents, dependents
+
+
+def fetch_pr_chain(pr, repo, url, base_ref_name, head_ref_name, owner, name, host=None):
+    """Classify manager membership and ordinary dependency relationships without mutation.
+
+    The local manager is the fast/rich path, but its output is accepted only when it contains the
+    requested PR. `gh stack view` has no target argument and may describe a different current stack.
+    """
+    local = _run(["gh", "stack", "view", "--json"])
+    if local.returncode == 0:
+        try:
+            chain = _chain_from_stack_view(json.loads(local.stdout), pr, url)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            chain = None
+        if chain:
+            return chain
+
+    manager_status, chain, default_branch = _fetch_graphql_stack(pr, owner, name, host)
+    if manager_status == MANAGER_CONFIRMED:
+        return chain
+
+    relationship, parents, dependents = _manual_relationships(
+        pr, repo, base_ref_name, head_ref_name, owner, name, host, default_branch)
+    result = _default_pr_chain()
+    result.update({
+        "manager_status": manager_status,
+        "relationship_status": relationship,
+        "parent_prs": parents,
+        "dependent_prs": dependents,
+    })
+    return result
 
 
 def fetch(pr, repo):
     """Fetch both event streams via gh into one combined snapshot dict."""
     repo_args = ["--repo", repo] if repo else []
     view = _run_checked(["gh", "pr", "view", str(pr), *repo_args, "--json",
-                         "state,mergeable,mergeStateStatus,reviewDecision,headRefOid,url,number,"
+                         "state,mergeable,mergeStateStatus,reviewDecision,headRefOid,baseRefName,headRefName,url,number,"
                          "statusCheckRollup,author,comments,reviews,reactionGroups"],
                         "gh pr view")
     v = json.loads(view.stdout)
@@ -190,16 +428,13 @@ def fetch(pr, repo):
         "threads": fetch_threads(pr, owner, name, host),
         # Non-thread feedback: top-level PR comments + review submission bodies. ce-resolve-pr-feedback
         # handles these too, so a Changes-Requested review body or an actionable top-level comment with
-        # NO inline thread must not be invisible to the loop. Content-actionability is the resolver's
-        # judgment; here we just surface non-empty, non-author, non-CI-bot items so the loop invokes it.
+        # NO inline thread must not be invisible to the loop. Content-actionability is entirely the
+        # resolver's judgment; this deterministic layer keeps every non-empty non-author body.
         "feedback": _extract_feedback(v),
         "awaiting_approval": fetch_awaiting_approval(owner, name, head, host),
+        "pr_chain": fetch_pr_chain(v.get("number") or pr, repo, v.get("url"),
+                                   v.get("baseRefName"), v.get("headRefName"), owner, name, host),
     }
-
-
-def _is_ci_bot(login):
-    """A pure CI/status bot login, tolerant of the "[bot]" suffix gh reports."""
-    return login.lower().removesuffix("[bot]") in CI_BOT_LOGINS
 
 
 def _body_hash(body):
@@ -211,17 +446,18 @@ def _body_hash(body):
 
 
 def _extract_feedback(v):
-    """Top-level PR comments + non-empty review bodies, excluding the PR author and CI/status
-    bots. `gh pr view --json comments,reviews` returns flat arrays (not GraphQL {nodes})."""
+    """Every non-empty top-level PR comment and review body not known to be from the PR author.
+    `gh pr view --json comments,reviews` returns flat arrays (not GraphQL {nodes}). Content,
+    identity, and surface are evidence for the resolver to judge, not deterministic exclusions."""
     author = (v.get("author") or {}).get("login")
     out = []
     for c in v.get("comments") or []:
         a = (c.get("author") or {}).get("login")
-        if a and a != author and not _is_ci_bot(a) and (c.get("body") or "").strip():
+        if (not author or a != author) and (c.get("body") or "").strip():
             out.append({"id": c.get("id"), "kind": "comment", "author": a, "edit_id": _body_hash(c.get("body"))})
     for r in v.get("reviews") or []:
         a = (r.get("author") or {}).get("login")
-        if a and a != author and not _is_ci_bot(a) and (r.get("body") or "").strip():
+        if (not author or a != author) and (r.get("body") or "").strip():
             out.append({"id": r.get("id"), "kind": "review", "author": a, "state": r.get("state"),
                         "edit_id": _body_hash(r.get("body"))})
     return out
@@ -295,7 +531,9 @@ def _empty_state(pr, repo, url, now):
         "head_sha": None, "tick": 0, "started_at": _iso(now),
         "checks": {}, "threads": {}, "ci_dispatched": {},
         "review_decision": None, "mergeable": None, "merge_state_status": None,
+        "pr_chain": _default_pr_chain(),
         "last_change_at": None, "last_action": None, "stop_reason": None,
+        "watch_generation": None, "watch_pid": None, "watch_process_identity": None,
         "trajectory": _empty_trajectory(),
     }
 
@@ -584,6 +822,7 @@ def diff(state, cur, now=None, advance_trajectory=True):
     state["merge_state_status"] = cur["merge_state_status"]
     state["review_in_progress"] = cur.get("review_in_progress", False)
     state["awaiting_approval"] = cur.get("awaiting_approval", 0)
+    state["pr_chain"] = cur.get("pr_chain") or _default_pr_chain()
 
     actionable = {"ci": actionable_ci, "threads": actionable_threads, "comments": actionable_feedback}
     if advance_trajectory:
@@ -635,6 +874,8 @@ def diff(state, cur, now=None, advance_trajectory=True):
         "review_in_progress": cur.get("review_in_progress", False),
         "checks_awaiting_approval": awaiting_approval,
         "blocked_external": blocked_external,
+        "pr_chain": state["pr_chain"],
+        "stack_blocker": _stack_blocker(state["pr_chain"]),
         "open_needs_human": open_needs_human,
         "needs_human_ids": needs_human_ids,
         "actionable": {"threads": actionable_threads, "ci": actionable_ci, "comments": actionable_feedback},
@@ -642,7 +883,9 @@ def diff(state, cur, now=None, advance_trajectory=True):
                    "comments": len(actionable_feedback), "needs_human": open_needs_human},
         "changed_this_tick": changed_this_tick,
         "quiet_seconds": quiet_seconds,
+        "session_started_at": state.get("started_at"),
         "session_seconds": _elapsed(state.get("started_at"), now),
+        "watch_generation": state.get("watch_generation"),
         "tick": state["tick"],
         "trajectory": trajectory,
     }, state
@@ -655,9 +898,26 @@ def _change_sig(state):
     feedback = {fid: v.get("disposition") for fid, v in state.get("feedback", {}).items()}
     return (checks, threads, feedback, state.get("review_decision"), state.get("mergeable"),
             state.get("merge_state_status"), state.get("review_in_progress"),
+            json.dumps(state.get("pr_chain") or _default_pr_chain(), sort_keys=True),
             # awaiting-approval clearing is movement: a fork gate lifting must reset the settle clock
             # so merge-ready waits for the now-imminent check-runs instead of firing on an empty rollup.
             bool(state.get("awaiting_approval")))
+
+
+def _stack_blocker(chain):
+    """Return the manager-currency residual that blocks target readiness, if any."""
+    status = (chain or {}).get("manager_status")
+    if status == MANAGER_PROBE_ERROR:
+        return "manager-probe-error"
+    if (chain or {}).get("relationship_status") == RELATIONSHIP_PROBE_ERROR:
+        return "relationship-probe-error"
+    if status == MANAGER_CONFIRMED:
+        freshness = chain.get("target_needs_rebase")
+        if freshness is True:
+            return "target-needs-rebase"
+        if freshness is not False:
+            return "managed-freshness-unknown"
+    return None
 
 
 def _elapsed(iso_str, now):
@@ -665,6 +925,17 @@ def _elapsed(iso_str, now):
         return int((now - datetime.fromisoformat(iso_str)).total_seconds())
     except (ValueError, TypeError):
         return 0
+
+
+def _session_started_at(value):
+    """Parse one invocation-wide, timezone-aware budget anchor for reuse across state dirs."""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        raise argparse.ArgumentTypeError("must be an ISO-8601 timestamp")
+    if parsed.tzinfo is None:
+        raise argparse.ArgumentTypeError("must include a timezone")
+    return _iso(parsed.astimezone(timezone.utc))
 
 
 @contextmanager
@@ -691,22 +962,36 @@ def locked_state(state_dir, pr, repo, now):
         fcntl.flock(lf, fcntl.LOCK_UN)
 
 
-def _run_snapshot(args, now, advance_trajectory=True):
-    """One fetch -> diff -> persist. Returns the actionable/state dict."""
+def _fetch_snapshot(args):
+    """Fetch current PR state without mutating the persisted babysit state."""
     if args.fetch_file:
         with open(args.fetch_file) as f:
-            cur = json.load(f)
-    else:
-        cur = fetch(args.pr, args.repo)
+            return json.load(f)
+    return fetch(args.pr, args.repo)
+
+
+def _apply_snapshot(box, args, cur, now, advance_trajectory):
+    """Apply one fetched snapshot to a caller-owned locked state box."""
+    if box["state"].get("pr", {}).get("url") is None and cur.get("url"):
+        box["state"]["pr"]["url"] = cur["url"]
+    if getattr(args, "session_started_at", None):
+        # Carry one invocation-wide clock through watch re-arms and managed-stack layer state dirs.
+        box["state"]["started_at"] = args.session_started_at
+    elif getattr(args, "reset_session", False):
+        # A fresh babysit invocation starts the budget clock now. Without this, `started_at`
+        # persists from state creation, so resuming against day-old state would read
+        # session_seconds as huge and hand back before doing any work.
+        box["state"]["started_at"] = _iso(now)
+    return diff(box["state"], cur, now, advance_trajectory=advance_trajectory)
+
+
+def _run_snapshot(args, now, advance_trajectory=True, watch_generation=None):
+    """One fetch -> diff -> persist. Returns the actionable/state dict."""
+    cur = _fetch_snapshot(args)
     with locked_state(args.state_dir, args.pr, args.repo, now) as box:
-        if box["state"].get("pr", {}).get("url") is None and cur.get("url"):
-            box["state"]["pr"]["url"] = cur["url"]
-        if getattr(args, "reset_session", False):
-            # A new babysit session (fresh invocation / watch arm) starts the budget clock now. Without
-            # this, `started_at` persists from state creation, so resuming against day-old state would
-            # read session_seconds as huge and hand back as "budget exhausted" before doing any work.
-            box["state"]["started_at"] = _iso(now)
-        actionable, box["state"] = diff(box["state"], cur, now, advance_trajectory=advance_trajectory)
+        if watch_generation is not None and box["state"].get("watch_generation") != watch_generation:
+            raise _WatchSuperseded()
+        actionable, box["state"] = _apply_snapshot(box, args, cur, now, advance_trajectory)
     return actionable
 
 
@@ -722,8 +1007,14 @@ def _wake_reason(a, settle_seconds):
     if a.get("blocked_external"):
         return "blocked-external"
     c = a.get("counts") or {}
-    if c.get("threads", 0) or c.get("comments", 0) or c.get("ci", 0):
+    if c.get("threads", 0) or c.get("ci", 0):
         return "actionable"
+    if c.get("comments", 0):
+        # Non-thread bodies are feedback candidates, not a deterministic conclusion that work is
+        # required. The resolver may legitimately silent-drop status noise or review wrappers.
+        return "feedback-candidate"
+    if a.get("stack_blocker"):
+        return "stack-blocked"
     if a.get("open_needs_human", 0):
         return "needs-human"         # parked items block ready; surface them
     if a.get("has_failing_checks") and a.get("checks_terminal"):
@@ -753,6 +1044,17 @@ def _emit_wake(reason, **fields):
     print(json.dumps({"event": "BABYSIT_WAKE", "reason": reason, **fields}), flush=True)
 
 
+def _persisted_watch_generation(args):
+    """Best-effort read of current ownership without creating or mutating watch state."""
+    try:
+        with open(os.path.join(args.state_dir, "state.json")) as f:
+            state = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    generation = state.get("watch_generation") if isinstance(state, dict) else None
+    return generation if isinstance(generation, str) and generation else None
+
+
 def _blocker_sig(a):
     """Identity of blockers the agent surfaces once but cannot self-clear — parked needs-human
     items, a dispatched terminally-red check, and a fork workflow awaiting maintainer approval. The
@@ -764,6 +1066,8 @@ def _blocker_sig(a):
         sig.add("__terminal_red__")
     if a.get("blocked_external"):
         sig.add("__blocked_external__")
+    if a.get("stack_blocker"):
+        sig.add(f"__stack__:{a['stack_blocker']}")
     # A new head is "context materially changed": a human may have pushed a commit that answers or
     # supersedes a parked residual, so the head is part of the baseline — when it moves, the residual
     # is no longer "already-surfaced against this state" and the watch wakes to give the agent a tick
@@ -773,35 +1077,217 @@ def _blocker_sig(a):
     return frozenset(sig)
 
 
+def _process_identity(pid):
+    """Best-effort PID-reuse guard for replacing a prior watcher. If process identity cannot be
+    proven, generation invalidation still suppresses its wake and we leave OS cleanup alone."""
+    r = subprocess.run(["ps", "-p", str(pid), "-o", "lstart=", "-o", "command="],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    return (r.stdout or "").strip() or None
+
+
+@contextmanager
+def _watch_lock(state_dir, exclusive):
+    import fcntl
+    os.makedirs(state_dir, exist_ok=True)
+    with open(os.path.join(state_dir, "lock"), "w") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        try:
+            yield
+        finally:
+            fcntl.flock(lf, fcntl.LOCK_UN)
+
+
+def _watch_candidate_path(args):
+    return os.path.join(args.state_dir, "watch-candidate.json")
+
+
+def _read_watch_candidate(args):
+    try:
+        with open(_watch_candidate_path(args)) as f:
+            candidate = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return candidate if isinstance(candidate, dict) else {}
+
+
+def _reserve_watch_candidate(args, generation):
+    """Make this invocation the newest candidate without displacing the active watcher."""
+    candidate = {
+        "generation": generation,
+        "pid": os.getpid(),
+        "process_identity": _process_identity(os.getpid()),
+    }
+    with _watch_lock(args.state_dir, exclusive=True):
+        previous = _read_watch_candidate(args)
+        tmp = tempfile.NamedTemporaryFile("w", dir=args.state_dir, delete=False)
+        json.dump(candidate, tmp)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp.close()
+        os.replace(tmp.name, _watch_candidate_path(args))
+    return previous
+
+
+def _clear_watch_candidate(args, generation):
+    with _watch_lock(args.state_dir, exclusive=True):
+        if _read_watch_candidate(args).get("generation") != generation:
+            return
+        try:
+            os.unlink(_watch_candidate_path(args))
+        except FileNotFoundError:
+            pass
+
+
+def _activate_watch(args, generation, now, cur):
+    """Atomically activate this watcher and persist its successfully fetched preflight."""
+    identity = _process_identity(os.getpid())
+    with locked_state(args.state_dir, args.pr, args.repo, now) as box:
+        if _read_watch_candidate(args).get("generation") != generation:
+            return None, None
+        state = box["state"]
+        previous = {
+            "pid": state.get("watch_pid"),
+            "process_identity": state.get("watch_process_identity"),
+        }
+        state["watch_generation"] = generation
+        state["watch_pid"] = os.getpid()
+        state["watch_process_identity"] = identity
+        actionable, box["state"] = _apply_snapshot(box, args, cur, now, advance_trajectory=False)
+        try:
+            os.unlink(_watch_candidate_path(args))
+        except FileNotFoundError:
+            pass
+    return previous, actionable
+
+
+def _watch_is_current(args, generation):
+    """Read the ownership generation under the state lock without rewriting state.json."""
+    state_path = os.path.join(args.state_dir, "state.json")
+    with _watch_lock(args.state_dir, exclusive=False):
+        if not os.path.exists(state_path):
+            return False
+        with open(state_path) as f:
+            return json.load(f).get("watch_generation") == generation
+
+
+def _emit_wake_if_current(args, generation, reason, **fields):
+    """Serialize the final ownership check with takeover so an old generation cannot emit after
+    the new generation has become current. A wake emitted just before takeover is valid at emission
+    and will be recognized as stale against the next fresh snapshot."""
+    state_path = os.path.join(args.state_dir, "state.json")
+    with _watch_lock(args.state_dir, exclusive=False):
+        if not os.path.exists(state_path):
+            return False
+        with open(state_path) as f:
+            if json.load(f).get("watch_generation") != generation:
+                return False
+        _emit_wake(reason, watch_generation=generation, **fields)
+        return True
+
+
+def _terminate_replaced_watch(previous):
+    """Promptly stop the replaced process, but never signal a PID whose identity no longer matches."""
+    pid = previous.get("pid")
+    identity = previous.get("process_identity")
+    if not isinstance(pid, int) or pid == os.getpid() or not identity:
+        return
+    if _process_identity(pid) != identity:
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+
 def cmd_watch(args):
     """Deterministic background change-detector (no agent tokens between changes): poll on an
     interval, print one wake sentinel line and exit when there is something for the agent to do
-    (an actionable change or a stop condition), or exit on the stop-signal file / max-runtime.
+    (work to inspect or a stop condition), or exit on the stop-signal file / max-runtime.
     A residual already present at arm time (a parked needs-human, or a dispatched terminal-red the
     agent already handed back) does NOT re-wake the loop — it keeps watching the other streams;
     only a *new* blocker (signature grown past the baseline) wakes."""
-    deadline = (time.monotonic() + args.max_runtime) if args.max_runtime else None
-    armed = None  # baseline blocker signature captured on the first poll (already-surfaced residuals)
-    args.reset_session = True   # arming a watch is a fresh session -> start the budget clock now
-    while True:
-        if args.stop_file and os.path.exists(args.stop_file):
-            _emit_wake("stop-signal")
+    stop_requested = threading.Event()
+    interrupt_immediately = True
+    superseded = False
+    generation = uuid.uuid4().hex
+
+    # An already-requested stop is authoritative before this invocation becomes a candidate. Use
+    # current ownership for the wake when one exists, but do not fetch, reserve, mutate watch state,
+    # or disturb that incumbent merely to report the stop condition.
+    if args.stop_file and os.path.exists(args.stop_file):
+        _emit_wake("stop-signal", watch_generation=_persisted_watch_generation(args) or generation)
+        return
+
+    def request_stop(_signum, _frame):
+        nonlocal superseded
+        superseded = True
+        stop_requested.set()
+        if interrupt_immediately:
+            raise _WatchSuperseded()
+
+    prior_sigterm = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGTERM, request_stop)
+    try:
+        previous_candidate = _reserve_watch_candidate(args, generation)
+        _terminate_replaced_watch(previous_candidate)
+
+        # Preflight before takeover: an invalid fetch/auth/config must not displace a healthy watcher.
+        cur = _fetch_snapshot(args)
+        if stop_requested.is_set():
             return
-        actionable = _run_snapshot(args, _now(), advance_trajectory=False)  # a poll must not roll the trajectory
-        args.reset_session = False   # ...but later polls are ticks of that same session, not new ones
-        if armed is None:
-            armed = _blocker_sig(actionable)
-        reason = _wake_reason(actionable, args.settle_seconds)
-        if reason in ("needs-human", "blocked-failing", "blocked-external") and _blocker_sig(actionable) <= armed:
-            reason = None   # already-surfaced residual — keep watching, do not re-wake or terminate
-        if reason:
-            _emit_wake(reason, url=actionable.get("url"),
-                       pr_state=actionable.get("pr_state"), counts=actionable.get("counts"))
+
+        # Finish the handoff even if an even newer watcher arrives: otherwise that watcher could
+        # stop us between activation and terminating our predecessor, orphaning the oldest process.
+        interrupt_immediately = False
+        previous, actionable = _activate_watch(args, generation, _now(), cur)
+        if previous is None:
+            superseded = True
             return
-        if deadline is not None and time.monotonic() >= deadline:
-            _emit_wake("max-runtime", url=actionable.get("url"))
+        args.reset_session = False
+        _terminate_replaced_watch(previous)
+        interrupt_immediately = True
+        if stop_requested.is_set():
             return
-        time.sleep(args.interval)
+
+        armed = _blocker_sig(actionable)  # blockers already surfaced when this generation armed
+        while True:
+            if stop_requested.is_set():
+                return
+            if not _watch_is_current(args, generation):
+                superseded = True
+                return
+            if args.stop_file and os.path.exists(args.stop_file):
+                _emit_wake_if_current(args, generation, "stop-signal")
+                return
+            reason = _wake_reason(actionable, args.settle_seconds)
+            if reason in ("needs-human", "blocked-failing", "blocked-external", "stack-blocked") and _blocker_sig(actionable) <= armed:
+                reason = None   # already-surfaced residual — keep watching, do not re-wake or terminate
+            if reason:
+                _emit_wake_if_current(args, generation, reason, url=actionable.get("url"),
+                                      pr_state=actionable.get("pr_state"), counts=actionable.get("counts"))
+                return
+            if args.max_runtime and actionable.get("session_seconds", 0) >= args.max_runtime:
+                _emit_wake_if_current(args, generation, "max-runtime", url=actionable.get("url"))
+                return
+            if stop_requested.wait(args.interval):
+                return
+            if not _watch_is_current(args, generation):
+                superseded = True
+                return
+            actionable = _run_snapshot(args, _now(), advance_trajectory=False,
+                                       watch_generation=generation)
+    except _WatchSuperseded:
+        superseded = True
+        return
+    finally:
+        interrupt_immediately = False
+        _clear_watch_candidate(args, generation)
+        # A newer owner can still signal our recorded PID after observing us stale but before this
+        # process has exited. Keep that late takeover signal harmless; ordinary wake/timeout/stop
+        # returns restore the embedding caller's handler as before.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN if superseded else prior_sigterm)
 
 
 def _mark_thread_baseline(item_id, args, state):
@@ -867,7 +1353,10 @@ def main():
     s.add_argument("--repo", default=None)
     s.add_argument("--state-dir", required=True)
     s.add_argument("--fetch-file", default=None)
-    s.add_argument("--reset-session", action="store_true")  # start the budget clock (a fresh invocation)
+    sg = s.add_mutually_exclusive_group()
+    sg.add_argument("--reset-session", action="store_true")  # start the budget clock (a fresh invocation)
+    sg.add_argument("--session-started-at", type=_session_started_at,
+                    help="carry a prior invocation's ISO-8601 budget anchor")
     s.set_defaults(func=cmd_snapshot)
 
     m = sub.add_parser("mark")
@@ -893,7 +1382,10 @@ def main():
     w.add_argument("--settle-seconds", type=float, default=300.0, help="quiet window before a merge-ready wake")
     w.add_argument("--stop-file", default=None, help="path whose existence stops the watch")
     w.add_argument("--fetch-file", default=None)
-    w.add_argument("--reset-session", action="store_true")  # cmd_watch also forces this on arm
+    wg = w.add_mutually_exclusive_group()
+    wg.add_argument("--reset-session", action="store_true")
+    wg.add_argument("--session-started-at", type=_session_started_at,
+                    help="carry the invocation-wide ISO-8601 budget anchor")
     w.set_defaults(func=cmd_watch)
 
     args = p.parse_args()
