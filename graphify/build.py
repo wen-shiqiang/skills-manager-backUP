@@ -22,6 +22,7 @@
 #
 from __future__ import annotations
 import json
+import math
 import os
 import re
 import sys
@@ -705,7 +706,31 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
             tgt = norm_to_id.get(_normalize_id(tgt), tgt)
         if src not in node_set or tgt not in node_set:
             continue  # skip edges to external/stdlib nodes - expected, not an error
-        attrs = {k: v for k, v in edge.items() if k not in ("source", "target")}
+        # `target_file` is a transient import-disambiguation salt hint (#1814)
+        # with no downstream reader; it holds an absolute path, so it must never
+        # be persisted. Disambiguation already pops it off fresh extractions —
+        # dropping it here as well keeps a pre-fix graph's stale absolute hint
+        # from surviving an incremental build_merge, which re-serializes base
+        # edges through here without re-running disambiguation.
+        # Sanitize numeric edge fields (#1960): an explicit ``"weight": null`` in
+        # the extraction JSON survives ``.get("weight", 1.0)`` (the key is present,
+        # so the default never applies) and reaches Louvain/Leiden as None,
+        # crashing modularity arithmetic with a TypeError (graspologic's Leiden
+        # even panics on NaN). Coerce to float and fall back to the schema default
+        # of 1.0 for anything the clustering backends reject — None, non-numeric
+        # strings, NaN/inf, negatives — while numeric strings coerce cleanly.
+        # Repair (not drop) the key so graph.json round-trips a clean value and a
+        # cluster-only/--update reload never re-ingests the null.
+        attrs = {k: v for k, v in edge.items() if k not in ("source", "target", "target_file")}
+        for _num_key in ("weight", "confidence_score"):
+            if _num_key in attrs:
+                try:
+                    _num_val = float(attrs[_num_key])
+                except (TypeError, ValueError):
+                    _num_val = 1.0
+                if not math.isfinite(_num_val) or _num_val < 0:
+                    _num_val = 1.0
+                attrs[_num_key] = _num_val
         # Backfill source_file from the endpoint nodes (every node carries one).
         # Semantic/LLM edges occasionally omit it, which downstream validation
         # flags and leaves query results with no file reference (#1279).
