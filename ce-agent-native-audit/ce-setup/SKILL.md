@@ -49,11 +49,14 @@ Display the diagnostic output to the user. Missing optional tools are not setup 
 
 ### Step 3: Decide Whether Fixes Are Needed
 
+**User-runnable invocation rendering.** In setup summaries, default to `/ce-setup`; use `$ce-setup` only when the active host is Codex or explicitly documents dollar-prefixed skill invocation. Render only the invocation as inline code and output one form only.
+
 Proceed to Phase 2 only if one or more repo-local project issues exist:
 
 - obsolete `compound-engineering.local.md`
 - `.compound-engineering/config.local.yaml` exists but is not safely gitignored
 - `.compound-engineering/config.local.example.yaml` is missing or outdated
+- the health report marks the `ce-work` skill implementation engine unavailable or invalid, detects retired scalar routing keys, or reports malformed dormant `work_engine_preferences`
 
 If no project issues exist, report:
 
@@ -63,7 +66,7 @@ If no project issues exist, report:
 Project config: ✅
 Optional capabilities: see diagnostic report above
 
-Run /ce-setup anytime to re-check.
+Run `<rendered invocation>` anytime to re-check.
 ```
 
 If optional tools are missing, do not offer a bulk install. The diagnostic already printed the relevant install command or project URL. Say: "Install optional tools only for the workflows you use."
@@ -99,6 +102,10 @@ Everything starts commented out -- you only enable what you need.
 
 If the user approves, copy `references/config-template.yaml` to `<repo-root>/.compound-engineering/config.local.yaml`.
 
+### Step 6a: Repair Invalid CE Work Preferences
+
+When the health report marks the CE Work implementation engine unavailable or invalid, detects retired scalar routing keys, or reports malformed dormant `work_engine_preferences`, do not guess the intended recipients. Explain the exact reported problem, derive a valid ordered `work_engine_preferences` block from the user's stated harness/model order (or remove malformed dormant preferences and use `work_engine_mode: off` when they want native-by-default), remove any retired scalar routing keys, and show the complete replacement block. Edit only those CE Work keys after the user approves the preview; preserve every unrelated local setting. Re-run the health check and require it to report either native or the intended normalized ordered list before setup is complete.
+
 ### Step 7: Ensure Local Config Is Gitignored
 
 If `.compound-engineering/config.local.yaml` exists and is not covered by `.gitignore`, offer to add:
@@ -120,5 +127,5 @@ Fixed:     <repo-local fixes applied, or none>
 Skipped:   <repo-local fixes declined, or none>
 Optional:  <missing optional tools, or all available>
 
-Run /ce-setup anytime to re-check.
+Run `<rendered invocation>` anytime to re-check.
 ```
