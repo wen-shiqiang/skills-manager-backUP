@@ -1283,7 +1283,27 @@ def dispatch_command(cmd: str) -> None:
                 at = f" {sfile}:{loc}" if loc else ""
                 print(f"  {arrow} {G.nodes[nb].get('label', nb)} [{rel}] [{conf}]{at}")
             if len(connections) > 20:
-                print(f"  ... and {len(connections) - 20} more")
+                remainder = connections[20:]
+                print(f"  ... and {len(remainder)} more")
+                # #2009: a bare count silently hides the answer on high-degree
+                # nodes ("who calls this, what's the impact?"). Group the cut
+                # connections by direction + file so their shape is visible
+                # without falling back to a repo-wide grep.
+                by_file: dict[tuple[str, str], int] = {}
+                for direction, _nb, edata in remainder:
+                    sfile = edata.get("source_file") or "(unknown file)"
+                    key = (direction, sfile)
+                    by_file[key] = by_file.get(key, 0) + 1
+                # Count desc, then (direction, file) so equal-count groups have a
+                # byte-stable order (not the degree-derived insertion order).
+                grouped = sorted(by_file.items(), key=lambda kv: (-kv[1], kv[0]))
+                print("  Grouped by file:")
+                for (direction, sfile), count in grouped[:20]:
+                    arrow = "-->" if direction == "out" else "<--"
+                    noun = "connection" if count == 1 else "connections"
+                    print(f"    {arrow} {sfile}: {count} {noun}")
+                if len(grouped) > 20:
+                    print(f"    ... and {len(grouped) - 20} more files")
         from graphify import querylog
         querylog.log_query(
             kind="explain",
@@ -2797,6 +2817,19 @@ def dispatch_command(cmd: str) -> None:
                 f"[graphify extract] {len(_unclassified)} file(s) not classified "
                 f"(no supported extension or shebang), skipped: {_names}{_more}"
             )
+        # Name the files dropped by the sensitive-file filter so a wrongly-flagged
+        # source/doc is visible, not just a count (#2106). Operational skips
+        # (symlink/office/Workspace) carry a " [reason]" suffix; exclude those here
+        # so this line reports only the security-heuristic drops.
+        _sensitive = detection.get("skipped_sensitive", []) if isinstance(detection, dict) else []
+        _sec = [s for s in _sensitive if " [" not in s]
+        if _sec:
+            _snames = ", ".join(sorted({Path(p).name for p in _sec})[:6])
+            _smore = f" (+{len(_sec) - 6} more)" if len(_sec) > 6 else ""
+            print(
+                f"[graphify extract] {len(_sec)} file(s) skipped as potentially sensitive "
+                f"(rename or move if wrongly flagged): {_snames}{_smore}"
+            )
         stages.mark("detect")
 
         # Resolve the LLM backend only now that we know whether the corpus
@@ -3231,6 +3264,33 @@ def dispatch_command(cmd: str) -> None:
                 stages.total()
                 sys.exit(0)
 
+            if incremental_mode:
+                # #2169: this raw path used to write ONLY this run's extraction
+                # over graph.json — on an incremental run that is just the
+                # changed files, silently dropping every node/edge owned by an
+                # unchanged file. Merge the existing graph forward first, with
+                # the same replace/prune semantics as the clustered path's
+                # build_merge: re-extracted sources replaced, deleted +
+                # excluded + graph-stale sources pruned, everything else
+                # carried. Survivors are prepended, so the dedupe below keeps
+                # this run's fresh attributes for re-extracted nodes.
+                from graphify.build import merge_raw_extraction as _merge_raw_extraction
+                _raw_prune_sources: list[str] = list(deleted_files)
+                for _src in list(excluded_files) + graph_stale_sources:
+                    if _src not in _raw_prune_sources:
+                        _raw_prune_sources.append(_src)
+                try:
+                    merged = _merge_raw_extraction(
+                        merged,
+                        graph_path=existing_graph_path,
+                        prune_sources=_raw_prune_sources or None,
+                        root=target,
+                    )
+                except RuntimeError as exc:
+                    # Existing graph present but unparseable: refuse to
+                    # raw-dump this run's partial extraction over it.
+                    print(f"error: {exc}", file=sys.stderr)
+                    sys.exit(1)
             merged["nodes"] = _dedupe_nodes(merged["nodes"])
             merged["edges"] = _dedupe_edges(merged["edges"])
             # Disambiguate colliding-basename file-node labels (#2032). This raw
