@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "5fcc2894-d34b-4ea2-8fa6-013bfe436294",
+  "path": "e2e-testing-patterns",
+  "path_key": "e2e-testing-patterns",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "wshobson/agents/e2e-testing-patterns",
+    "subpath": "plugins\\developer-essentials\\skills\\e2e-testing-patterns",
+    "branch": null
+  }
+}

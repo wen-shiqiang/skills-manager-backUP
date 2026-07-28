@@ -1,162 +1,460 @@
 ---
-name: "self-improving-agent"
-description: "Curate Claude Code's auto-memory into durable project knowledge. Analyze MEMORY.md for patterns, promote proven learnings to CLAUDE.md and .claude/rules/, extract recurring solutions into reusable skills. Use when: (1) reviewing what Claude has learned about your project, (2) graduating a pattern from notes to enforced rules, (3) turning a debugging solution into a skill, (4) checking memory health and capacity."
+name: self-improving-agent
+description: A universal self-improving agent that learns from ALL skill experiences. Uses multi-memory architecture (semantic + episodic + working) to continuously evolve the codebase. Auto-triggers on skill completion/error with hooks-based self-correction.
+allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
+metadata:
+  hooks:
+    before_start:
+      - trigger: session-logger
+        mode: auto
+        context: "Start {skill_name}"
+    after_complete:
+      - trigger: create-pr
+        mode: ask_first
+        condition: skills_modified
+        reason: "Submit improvements to repository"
+      - trigger: session-logger
+        mode: auto
+        context: "Self-improvement cycle complete"
+    # Note: on_error intentionally only logs to session to avoid infinite recursion
+    # Self-correction is triggered by other skills (debugger, code-reviewer) completing their work
+    on_error:
+      - trigger: session-logger
+        mode: auto
+        context: "Error captured in {skill_name}"
 ---
 
 # Self-Improving Agent
 
-> Auto-memory captures. This plugin curates.
+> "An AI agent that learns from every interaction, accumulating patterns and insights to continuously improve its own capabilities." — Based on 2025 lifelong learning research
 
-Claude Code's auto-memory (v2.1.32+) automatically records project patterns, debugging insights, and your preferences in `MEMORY.md`. This plugin adds the intelligence layer: it analyzes what Claude has learned, promotes proven patterns into project rules, and extracts recurring solutions into reusable skills.
+## Overview
 
-## Quick Reference
+This is a **universal self-improvement system** that learns from ALL skill experiences, not just PRDs. It implements a complete feedback loop with:
 
-| Command | What it does |
-|---------|-------------|
-| `/si:review` | Analyze MEMORY.md — find promotion candidates, stale entries, consolidation opportunities |
-| `/si:promote` | Graduate a pattern from MEMORY.md → CLAUDE.md or `.claude/rules/` |
-| `/si:extract` | Turn a proven pattern into a standalone skill |
-| `/si:status` | Memory health dashboard — line counts, topic files, recommendations |
-| `/si:remember` | Explicitly save important knowledge to auto-memory |
+- **Multi-Memory Architecture**: Semantic + Episodic + Working memory
+- **Self-Correction**: Detects and fixes skill guidance errors
+- **Self-Validation**: Periodically verifies skill accuracy
+- **Hooks Integration**: Auto-triggers on skill events (before_start, after_complete, on_error)
+- **Evolution Markers**: Traceable changes with source attribution
 
-## How It Fits Together
+## Research-Based Design
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                  Claude Code Memory Stack                │
-├─────────────┬──────────────────┬────────────────────────┤
-│  CLAUDE.md  │   Auto Memory    │   Session Memory       │
-│  (you write)│   (Claude writes)│   (Claude writes)      │
-│  Rules &    │   MEMORY.md      │   Conversation logs    │
-│  standards  │   + topic files  │   + continuity         │
-│  Full load  │   First 200 lines│   Contextual load      │
-├─────────────┴──────────────────┴────────────────────────┤
-│              ↑ /si:promote        ↑ /si:review          │
-│         Self-Improving Agent (this plugin)               │
-│              ↓ /si:extract    ↓ /si:remember            │
-├─────────────────────────────────────────────────────────┤
-│  .claude/rules/    │    New Skills    │   Error Logs     │
-│  (scoped rules)    │    (extracted)   │   (auto-captured)│
-└─────────────────────────────────────────────────────────┘
-```
+Based on 2025 research:
 
-## Installation
+| Research | Key Insight | Application |
+|----------|-------------|-------------|
+| [SimpleMem](https://arxiv.org/html/2601.02553v1) | Efficient lifelong memory | Pattern accumulation system |
+| [Multi-Memory Survey](https://dl.acm.org/doi/10.1145/3748302) | Semantic + Episodic memory | World knowledge + experiences |
+| [Lifelong Learning](https://arxiv.org/html/2501.07278v1) | Continuous task stream learning | Learn from every skill use |
+| [Evo-Memory](https://shothota.medium.com/evo-memory-deepminds-new-benchmark) | Test-time lifelong learning | Real-time adaptation |
 
-### Claude Code (Plugin)
-```
-/plugin marketplace add alirezarezvani/claude-skills
-/plugin install self-improving-agent@claude-code-skills
-```
-
-### OpenClaw
-```bash
-clawhub install self-improving-agent
-```
-
-### Codex CLI
-```bash
-./scripts/codex-install.sh --skill self-improving-agent
-```
-
-## Memory Architecture
-
-### Where things live
-
-| File | Who writes | Scope | Loaded |
-|------|-----------|-------|--------|
-| `./CLAUDE.md` | You (+ `/si:promote`) | Project rules | Full file, every session |
-| `~/.claude/CLAUDE.md` | You | Global preferences | Full file, every session |
-| `~/.claude/projects/<path>/memory/MEMORY.md` | Claude (auto) | Project learnings | First 200 lines |
-| `~/.claude/projects/<path>/memory/*.md` | Claude (overflow) | Topic-specific notes | On demand |
-| `.claude/rules/*.md` | You (+ `/si:promote`) | Scoped rules | When matching files open |
-
-### The promotion lifecycle
+## The Self-Improvement Loop
 
 ```
-1. Claude discovers pattern → auto-memory (MEMORY.md)
-2. Pattern recurs 2-3x → /si:review flags it as promotion candidate
-3. You approve → /si:promote graduates it to CLAUDE.md or rules/
-4. Pattern becomes an enforced rule, not just a note
-5. MEMORY.md entry removed → frees space for new learnings
+┌─────────────────────────────────────────────────────────────────┐
+│                    UNIVERSAL SELF-IMPROVEMENT                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   Skill Event → Extract Experience → Abstract Pattern → Update  │
+│        │                  │                │         │          │
+│        ▼                  ▼                ▼         ▼          │
+│   ┌─────────────────────────────────────────────────────┐       │
+│   │              MULTI-MEMORY SYSTEM                      │       │
+│   ├─────────────────────────────────────────────────────┤       │
+│   │  Semantic Memory   │  Episodic Memory  │ Working Memory │  │
+│   │  (Patterns/Rules)  │  (Experiences)    │  (Current)     │  │
+│   │  memory/semantic/  │  memory/episodic/ │  memory/working/│  │
+│   └─────────────────────────────────────────────────────┘       │
+│                                                                 │
+│   ┌─────────────────────────────────────────────────────┐       │
+│   │              FEEDBACK LOOP                            │       │
+│   │  User Feedback → Confidence Update → Pattern Adapt   │       │
+│   └─────────────────────────────────────────────────────┘       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## Core Concepts
+## When This Activates
 
-### Auto-memory is capture, not curation
+### Automatic Triggers (via hooks)
 
-Auto-memory is excellent at recording what Claude learns. But it has no judgment about:
-- Which learnings are temporary vs. permanent
-- Which patterns should become enforced rules
-- When the 200-line limit is wasting space on stale entries
-- Which solutions are good enough to become reusable skills
+| Event | Trigger | Action |
+|-------|---------|--------|
+| **before_start** | Any skill starts | Log session start |
+| **after_complete** | Any skill completes | Extract patterns, update skills |
+| **on_error** | Bash returns non-zero exit | Capture error context, trigger self-correction |
 
-That's what this plugin does.
+### Manual Triggers
 
-### Promotion = graduation
+- User says "自我进化", "self-improve", "从经验中学习"
+- User says "分析今天的经验", "总结教训"
+- User asks to improve a specific skill
 
-When you promote a learning, it moves from Claude's scratchpad (MEMORY.md) to your project's rule system (CLAUDE.md or `.claude/rules/`). The difference matters:
+## Evolution Priority Matrix
 
-- **MEMORY.md**: "I noticed this project uses pnpm" (background context)
-- **CLAUDE.md**: "Use pnpm, not npm" (enforced instruction)
+Trigger evolution when new reusable knowledge appears:
 
-Promoted rules have higher priority and load in full (not truncated at 200 lines).
+| Trigger | Target Skill | Priority | Action |
+|---------|--------------|----------|--------|
+| New PRD pattern discovered | prd-planner | High | Add to quality checklist |
+| Architecture tradeoff clarified | architecting-solutions | High | Add to decision patterns |
+| API design rule learned | api-designer | High | Update template |
+| Debugging fix discovered | debugger | High | Add to anti-patterns |
+| Review checklist gap | code-reviewer | High | Add checklist item |
+| Perf/security insight | performance-engineer, security-auditor | High | Add to patterns |
+| UI/UX spec issue | prd-planner, architecting-solutions | High | Add visual spec requirements |
+| React/state pattern | debugger, refactoring-specialist | Medium | Add to patterns |
+| Test strategy improvement | test-automator, qa-expert | Medium | Update approach |
+| CI/deploy fix | deployment-engineer | Medium | Add to troubleshooting |
 
-### Rules directory for scoped knowledge
+## Multi-Memory Architecture
 
-Not everything belongs in CLAUDE.md. Use `.claude/rules/` for patterns that only apply to specific file types:
+### 1. Semantic Memory (`memory/semantic-patterns.json`)
+
+Stores **abstract patterns and rules** reusable across contexts:
+
+```json
+{
+  "patterns": {
+    "pattern_id": {
+      "id": "pat-2025-01-11-001",
+      "name": "Pattern Name",
+      "source": "user_feedback|implementation_review|retrospective",
+      "confidence": 0.95,
+      "applications": 5,
+      "created": "2025-01-11",
+      "category": "prd_structure|react_patterns|async_patterns|...",
+      "pattern": "One-line summary",
+      "problem": "What problem does this solve?",
+      "solution": { ... },
+      "quality_rules": [ ... ],
+      "target_skills": [ ... ]
+    }
+  }
+}
+```
+
+### 2. Episodic Memory (`memory/episodic/`)
+
+Stores **specific experiences and what happened**:
+
+```
+memory/episodic/
+├── 2025/
+│   ├── 2025-01-11-prd-creation.json
+│   ├── 2025-01-11-debug-session.json
+│   └── 2025-01-12-refactoring.json
+```
+
+```json
+{
+  "id": "ep-2025-01-11-001",
+  "timestamp": "2025-01-11T10:30:00Z",
+  "skill": "debugger",
+  "situation": "User reported data not refreshing after form submission",
+  "root_cause": "Empty callback in onRefresh prop",
+  "solution": "Implement actual refresh logic in callback",
+  "lesson": "Always verify callbacks are not empty functions",
+  "related_pattern": "callback_verification",
+  "user_feedback": {
+    "rating": 8,
+    "comments": "This was exactly the issue"
+  }
+}
+```
+
+### 3. Working Memory (`memory/working/`)
+
+Stores **current session context**:
+
+```
+memory/working/
+├── current_session.json   # Active session data
+├── last_error.json        # Error context for self-correction
+└── session_end.json       # Session end marker
+```
+
+## Self-Improvement Process
+
+### Phase 1: Experience Extraction
+
+After any skill completes, extract:
 
 ```yaml
-# .claude/rules/api-testing.md
----
-paths:
-  - "src/api/**/*.test.ts"
-  - "tests/api/**/*"
----
-- Use supertest for API endpoint testing
-- Mock external services with msw
-- Always test error responses, not just happy paths
+What happened:
+  skill_used: {which skill}
+  task: {what was being done}
+  outcome: {success|partial|failure}
+
+Key Insights:
+  what_went_well: [what worked]
+  what_went_wrong: [what didn't work]
+  root_cause: {underlying issue if applicable}
+
+User Feedback:
+  rating: {1-10 if provided}
+  comments: {specific feedback}
 ```
 
-This loads only when Claude works with API test files — zero overhead otherwise.
+### Phase 2: Pattern Abstraction
 
-## Agents
+Convert experiences to reusable patterns:
 
-### memory-analyst
-Analyzes MEMORY.md and topic files to identify:
-- Entries that recur across sessions (promotion candidates)
-- Stale entries referencing deleted files or old patterns
-- Related entries that should be consolidated
-- Gaps between what MEMORY.md knows and what CLAUDE.md enforces
+| Concrete Experience | Abstract Pattern | Target Skill |
+|--------------------|------------------|--------------|
+| "User forgot to save PRD notes" | "Always persist thinking to files" | prd-planner |
+| "Code review missed SQL injection" | "Add security checklist item" | code-reviewer |
+| "Callback was empty, didn't work" | "Verify callback implementations" | debugger |
+| "Net APY position ambiguous" | "UI specs need exact relative positions" | prd-planner |
 
-### skill-extractor
-Takes a proven pattern and generates a complete skill:
-- SKILL.md with proper frontmatter
-- Reference documentation
-- Examples and edge cases
-- Ready for `/plugin install` or `clawhub publish`
+**Abstraction Rules:**
 
-## Hooks
+```yaml
+If experience_repeats 3+ times:
+  pattern_level: critical
+  action: Add to skill's "Critical Mistakes" section
 
-### error-capture (PostToolUse → Bash)
-Monitors command output for errors. When detected, appends a structured entry to auto-memory with:
-- The command that failed
-- Error output (truncated)
-- Timestamp and context
-- Suggested category
+If solution_was_effective:
+  pattern_level: best_practice
+  action: Add to skill's "Best Practices" section
 
-**Token overhead:** Zero on success. ~30 tokens only when an error is detected.
+If user_rating >= 7:
+  pattern_level: strength
+  action: Reinforce this approach
 
-## Platform Support
+If user_rating <= 4:
+  pattern_level: weakness
+  action: Add to "What to Avoid" section
+```
 
-| Platform | Memory System | Plugin Works? |
-|----------|--------------|---------------|
-| Claude Code | Auto-memory (MEMORY.md) | ✅ Full support |
-| OpenClaw | workspace/MEMORY.md | ✅ Adapted (reads workspace memory) |
-| Codex CLI | AGENTS.md | ✅ Adapted (reads AGENTS.md patterns) |
-| GitHub Copilot | `.github/copilot-instructions.md` | ⚠️ Manual promotion only |
+### Phase 3: Skill Updates
 
-## Related
+Update the appropriate skill files with **evolution markers**:
 
-- [Claude Code Memory Docs](https://code.claude.com/docs/en/memory)
-- [pskoett/self-improving-agent](https://clawhub.ai/pskoett/self-improving-agent) — inspiration
-- [playwright-pro](../playwright-pro/) — sister plugin in this repo
+```markdown
+<!-- Evolution: 2025-01-12 | source: ep-2025-01-12-001 | skill: debugger -->
+
+## Pattern Added (2025-01-12)
+
+**Pattern**: Always verify callbacks are not empty functions
+
+**Source**: Episode ep-2025-01-12-001
+
+**Confidence**: 0.95
+
+### Updated Checklist
+- [ ] Verify all callbacks have implementations
+- [ ] Test callback execution paths
+```
+
+**Correction Markers** (when fixing wrong guidance):
+
+```markdown
+<!-- Correction: 2025-01-12 | was: "Use callback chain" | reason: caused stale refresh -->
+
+## Corrected Guidance
+
+Use direct state monitoring instead of callback chains:
+```typescript
+// ✅ Do: Direct state monitoring
+const prevPendingCount = usePrevious(pendingCount);
+```
+```
+
+### Phase 4: Memory Consolidation
+
+1. **Update semantic memory** (`memory/semantic-patterns.json`)
+2. **Store episodic memory** (`memory/episodic/YYYY-MM-DD-{skill}.json`)
+3. **Update pattern confidence** based on applications/feedback
+4. **Prune outdated patterns** (low confidence, no recent applications)
+
+## Promotion Policy
+
+Self-improvement has two separate jobs:
+
+1. **Capture** facts, corrections, failed assumptions, and reusable patterns as memory or proposal artifacts.
+2. **Promote** only validated patterns into `SKILL.md`, `AGENTS.md`, docs, or CLI behavior.
+
+Default to capture-first. Promote a change only when one of these is true:
+
+- The user explicitly asks to update a skill or repository instruction.
+- The same pattern recurs across multiple episodes.
+- A focused test or review proves the current guidance is wrong or incomplete.
+- The change is low-risk documentation that preserves existing behavior and is clearly traceable.
+
+Promotion targets:
+
+| Artifact | Use For | Approval Level |
+|----------|---------|----------------|
+| `memory/episodic/*.json` | Raw episode facts and signals | Auto |
+| `memory/semantic-patterns.json` | Candidate reusable patterns with confidence | Auto |
+| `memory/proposals/*.md` | Proposed skill/doc/code changes with evidence | Auto |
+| `SKILL.md` / `references/` | Validated workflow guidance | Ask first unless user requested editing |
+| `AGENTS.md` / repo rules | Cross-repo behavior or hard constraints | Ask first |
+| CLI/runtime code | Automation semantics | Require tests |
+
+## Self-Correction (on_error hook)
+
+Triggered when:
+- Bash command returns non-zero exit code
+- Tests fail after following skill guidance
+- User reports the guidance produced incorrect results
+
+**Process:**
+
+```markdown
+## Self-Correction Workflow
+
+1. Detect Error
+   - Capture error context from working/last_error.json
+   - Identify which skill guidance was followed
+
+2. Verify Root Cause
+   - Was the skill guidance incorrect?
+   - Was the guidance misinterpreted?
+   - Was the guidance incomplete?
+
+3. Create Proposal
+   - Write a proposal with evidence, affected skill names, and expected behavior
+   - Add correction marker text in the proposal, not directly in the skill yet
+   - Update related patterns in semantic memory with low initial confidence
+
+4. Validate Fix
+   - Test the corrected guidance
+   - Ask user to verify
+
+5. Promote
+   - Apply the skill/doc/code change after validation or explicit approval
+   - Keep the source episode/proposal id in the change note
+```
+
+**Example:**
+
+```markdown
+<!-- Correction: 2025-01-12 | was: "useMemo for claimable ids" | reason: stale data at click time -->
+
+## Self-Correction: Click-Time Computation
+
+**Issue**: Using useMemo for claimable IDs caused stale data
+**Fix**: Compute at click time for always-fresh data
+**Pattern**: click_time_vs_open_time_computation
+```
+
+## Self-Validation
+
+Use the validation template in `references/appendix.md` when reviewing updates.
+
+## Hooks Integration
+
+### Runtime Trigger Source
+
+`agent-playbook self-improve` reads skill chaining from each skill's `SKILL.md` frontmatter:
+
+```yaml
+metadata:
+  hooks:
+    after_complete:
+      - trigger: self-improving-agent
+        mode: background
+        reason: "Extract patterns"
+```
+
+Treat `metadata.hooks` as the source of truth. Do not maintain a second hardcoded hook map in runtime code. This keeps skill behavior auditable and lets Skill Creator style reviews inspect the same file that the agent executes.
+
+### Wiring Hooks in Claude Code Settings
+
+For Claude Code, install hooks through `agent-playbook init --hooks` when possible.
+If you need manual setup, add hook entries to Claude Code settings at the
+appropriate user or project scope.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${SKILLS_DIR}/self-improving-agent/hooks/pre-tool.sh \"$TOOL_NAME\" \"$TOOL_INPUT\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${SKILLS_DIR}/self-improving-agent/hooks/post-bash.sh \"$TOOL_OUTPUT\" \"$EXIT_CODE\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${SKILLS_DIR}/self-improving-agent/hooks/session-end.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Replace `${SKILLS_DIR}` with your actual skills path.
+
+## Additional References
+
+See `references/appendix.md` for memory structure, workflow diagrams, metrics, feedback templates, and research links.
+
+## Best Practices
+
+### DO
+
+- ✅ Learn from EVERY skill interaction
+- ✅ Extract patterns at the right abstraction level
+- ✅ Update multiple related skills
+- ✅ Track confidence and apply counts
+- ✅ Ask for user feedback on improvements
+- ✅ Use evolution/correction markers for traceability
+- ✅ Validate guidance before applying broadly
+- ✅ Write proposals before mutating durable skill guidance
+- ✅ Keep hook routing in `metadata.hooks`
+
+### DON'T
+
+- ❌ Over-generalize from single experiences
+- ❌ Update skills without confidence tracking
+- ❌ Ignore negative feedback
+- ❌ Make changes that break existing functionality
+- ❌ Create contradictory patterns
+- ❌ Update skills without understanding context
+- ❌ Silently promote self-improvement findings into repo rules
+- ❌ Duplicate hook definitions in CLI code and skill frontmatter
+
+## Quick Start
+
+After a high-signal skill workflow completes, this agent can:
+
+1. **Analyzes** what happened
+2. **Extracts** patterns and insights
+3. **Writes** memory and proposal artifacts
+4. **Promotes** validated improvements only when approval or evidence is sufficient
+5. **Reports** summary to user
+
+## References
+
+- [SimpleMem: Efficient Lifelong Memory for LLM Agents](https://arxiv.org/html/2601.02553v1)
+- [A Survey on the Memory Mechanism of Large Language Model Agents](https://dl.acm.org/doi/10.1145/3748302)
+- [Lifelong Learning of LLM based Agents](https://arxiv.org/html/2501.07278v1)
+- [Evo-Memory: DeepMind's Benchmark](https://shothota.medium.com/evo-memory-deepminds-new-benchmark)
+- [Let's Build a Self-Improving AI Agent](https://medium.com/@nomannayeem/lets-build-a-self-improving-ai-agent-that-learns-from-your-feedback-722d2ce9c2d9)
+- [OpenCrabs local self-improving agent](https://github.com/adolfousier/opencrabs)
+- [ELL-StuLife experience-driven lifelong learning](https://github.com/ECNU-ICALK/ELL-StuLife)

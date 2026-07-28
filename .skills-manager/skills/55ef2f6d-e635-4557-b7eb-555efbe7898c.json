@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "55ef2f6d-e635-4557-b7eb-555efbe7898c",
+  "path": "self-improving-agent",
+  "path_key": "self-improving-agent",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "charon-fan/agent-playbook/self-improving-agent",
+    "subpath": "skills\\self-improving-agent",
+    "branch": null
+  }
+}

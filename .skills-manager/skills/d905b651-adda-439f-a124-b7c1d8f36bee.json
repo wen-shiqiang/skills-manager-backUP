@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "d905b651-adda-439f-a124-b7c1d8f36bee",
+  "path": "ui-design-brain",
+  "path_key": "ui-design-brain",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "carmahhawwari/ui-design-brain/ui-design-brain",
+    "subpath": null,
+    "branch": null
+  }
+}

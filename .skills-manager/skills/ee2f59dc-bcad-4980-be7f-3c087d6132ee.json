@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "ee2f59dc-bcad-4980-be7f-3c087d6132ee",
+  "path": "playwright-testing-2",
+  "path_key": "playwright-testing-2",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "alinaqi/claude-bootstrap/playwright-testing",
+    "subpath": "skills\\playwright-testing",
+    "branch": null
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "432444f4-274f-4920-94ea-99aa06e1abc3",
+  "path": "playwright-generate-test",
+  "path_key": "playwright-generate-test",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "github/awesome-copilot/playwright-generate-test",
+    "subpath": "skills\\playwright-generate-test",
+    "branch": null
+  }
+}

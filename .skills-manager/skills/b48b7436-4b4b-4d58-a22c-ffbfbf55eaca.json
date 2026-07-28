@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "b48b7436-4b4b-4d58-a22c-ffbfbf55eaca",
+  "path": "design-taste-frontend",
+  "path_key": "design-taste-frontend",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "sickn33/agentic-awesome-skills/design-taste-frontend",
+    "subpath": "skills\\design-taste-frontend",
+    "branch": null
+  }
+}

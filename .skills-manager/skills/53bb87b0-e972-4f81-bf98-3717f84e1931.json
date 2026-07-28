@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "53bb87b0-e972-4f81-bf98-3717f84e1931",
+  "path": "playwright-explore-website",
+  "path_key": "playwright-explore-website",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "github/awesome-copilot/playwright-explore-website",
+    "subpath": "skills\\playwright-explore-website",
+    "branch": null
+  }
+}

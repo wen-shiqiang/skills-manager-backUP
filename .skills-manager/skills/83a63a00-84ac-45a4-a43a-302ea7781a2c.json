@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "83a63a00-84ac-45a4-a43a-302ea7781a2c",
+  "path": "test-data-management",
+  "path_key": "test-data-management",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "proffesor-for-testing/agentic-qe/test-data-management",
+    "subpath": ".claude\\skills\\test-data-management",
+    "branch": null
+  }
+}
