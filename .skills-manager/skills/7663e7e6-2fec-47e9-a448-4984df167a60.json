@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "7663e7e6-2fec-47e9-a448-4984df167a60",
+  "path": "ce-product-pulse",
+  "path_key": "ce-product-pulse",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "skills\\ce-product-pulse",
+    "branch": null
+  }
+}

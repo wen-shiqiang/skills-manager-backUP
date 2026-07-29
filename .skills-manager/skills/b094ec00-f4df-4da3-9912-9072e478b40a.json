@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "b094ec00-f4df-4da3-9912-9072e478b40a",
+  "path": "ce-riffrec-feedback-analysis",
+  "path_key": "ce-riffrec-feedback-analysis",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "skills\\ce-riffrec-feedback-analysis",
+    "branch": null
+  }
+}

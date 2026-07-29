@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "8b1de951-75c2-43ca-b943-aacb6c4cc985",
+  "path": "ce-optimize",
+  "path_key": "ce-optimize",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "skills\\ce-optimize",
+    "branch": null
+  }
+}

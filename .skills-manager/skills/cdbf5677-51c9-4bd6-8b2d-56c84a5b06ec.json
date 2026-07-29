@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "cdbf5677-51c9-4bd6-8b2d-56c84a5b06ec",
+  "path": "ce-polish",
+  "path_key": "ce-polish",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "skills\\ce-polish",
+    "branch": null
+  }
+}

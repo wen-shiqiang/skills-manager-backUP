@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "4fedf3fa-728e-429d-8df3-4adcb41df5c3",
+  "path": "ce-handoff",
+  "path_key": "ce-handoff",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "skills\\ce-handoff",
+    "branch": null
+  }
+}

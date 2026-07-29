@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "169cc4d4-d994-4531-b64a-342062cfb356",
+  "path": "ce-promote",
+  "path_key": "ce-promote",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "skills\\ce-promote",
+    "branch": null
+  }
+}

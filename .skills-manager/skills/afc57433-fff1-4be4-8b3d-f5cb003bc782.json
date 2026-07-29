@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "afc57433-fff1-4be4-8b3d-f5cb003bc782",
+  "path": "ce-compound-refresh",
+  "path_key": "ce-compound-refresh",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "skills\\ce-compound-refresh",
+    "branch": null
+  }
+}

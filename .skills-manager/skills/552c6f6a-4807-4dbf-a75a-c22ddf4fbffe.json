@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "552c6f6a-4807-4dbf-a75a-c22ddf4fbffe",
+  "path": "ce-pov",
+  "path_key": "ce-pov",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "skills\\ce-pov",
+    "branch": null
+  }
+}

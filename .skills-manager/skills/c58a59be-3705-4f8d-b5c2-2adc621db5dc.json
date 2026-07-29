@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "c58a59be-3705-4f8d-b5c2-2adc621db5dc",
+  "path": "ce-strategy",
+  "path_key": "ce-strategy",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "skills\\ce-strategy",
+    "branch": null
+  }
+}

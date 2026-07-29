@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "f992f928-a8a6-47be-a283-e97f11b9321d",
+  "path": "ce-code-review",
+  "path_key": "ce-code-review",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "skills\\ce-code-review",
+    "branch": null
+  }
+}

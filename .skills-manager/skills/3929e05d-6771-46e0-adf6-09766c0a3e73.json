@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "3929e05d-6771-46e0-adf6-09766c0a3e73",
+  "path": "ce-brainstorm",
+  "path_key": "ce-brainstorm",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/EveryInc/compound-engineering-plugin",
+    "subpath": "skills\\ce-brainstorm",
+    "branch": null
+  }
+}
