@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "skill_id": "735051cb-cd46-4cea-8263-fcde17ae3643",
-  "path": "handoff",
-  "path_key": "handoff",
+  "skill_id": "99c08c48-c9e3-4395-bc1e-f8fe00a1fe26",
+  "path": "tdd-2",
+  "path_key": "tdd-2",
   "enabled": true,
   "tags": [],
   "source": {
     "type": "git",
     "ref": "https://github.com/mattpocock/skills.git",
-    "subpath": "skills\\productivity\\handoff",
+    "subpath": "skills\\engineering\\tdd",
     "branch": null
   }
 }

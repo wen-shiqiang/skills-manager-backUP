@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "239e7c62-b6cf-44c3-9b2f-6f91ee1c60cf",
+  "path": "grilling-2",
+  "path_key": "grilling-2",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "mattpocock/skills/grilling",
+    "subpath": "skills\\productivity\\grilling",
+    "branch": null
+  }
+}

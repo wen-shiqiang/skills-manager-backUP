@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "skill_id": "735051cb-cd46-4cea-8263-fcde17ae3643",
-  "path": "handoff",
-  "path_key": "handoff",
+  "skill_id": "c7902d10-c2d3-4561-bdf6-af726a85118b",
+  "path": "wizard",
+  "path_key": "wizard",
   "enabled": true,
   "tags": [],
   "source": {
     "type": "git",
     "ref": "https://github.com/mattpocock/skills.git",
-    "subpath": "skills\\productivity\\handoff",
+    "subpath": "skills\\in-progress\\wizard",
     "branch": null
   }
 }

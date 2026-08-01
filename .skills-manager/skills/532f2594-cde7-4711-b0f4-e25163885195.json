@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "skill_id": "735051cb-cd46-4cea-8263-fcde17ae3643",
-  "path": "handoff",
-  "path_key": "handoff",
+  "skill_id": "532f2594-cde7-4711-b0f4-e25163885195",
+  "path": "setup-pre-commit",
+  "path_key": "setup-pre-commit",
   "enabled": true,
   "tags": [],
   "source": {
     "type": "git",
     "ref": "https://github.com/mattpocock/skills.git",
-    "subpath": "skills\\productivity\\handoff",
+    "subpath": "skills\\misc\\setup-pre-commit",
     "branch": null
   }
 }

@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "skill_id": "735051cb-cd46-4cea-8263-fcde17ae3643",
-  "path": "handoff",
-  "path_key": "handoff",
+  "skill_id": "7b423016-69be-4a25-9cad-aa9bb4ea05d0",
+  "path": "batch-grill-me",
+  "path_key": "batch-grill-me",
   "enabled": true,
   "tags": [],
   "source": {
     "type": "git",
     "ref": "https://github.com/mattpocock/skills.git",
-    "subpath": "skills\\productivity\\handoff",
+    "subpath": "skills\\in-progress\\batch-grill-me",
     "branch": null
   }
 }

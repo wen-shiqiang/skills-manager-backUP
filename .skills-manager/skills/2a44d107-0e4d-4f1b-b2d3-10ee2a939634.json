@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "skill_id": "735051cb-cd46-4cea-8263-fcde17ae3643",
-  "path": "handoff",
-  "path_key": "handoff",
+  "skill_id": "2a44d107-0e4d-4f1b-b2d3-10ee2a939634",
+  "path": "diagnosing-bugs",
+  "path_key": "diagnosing-bugs",
   "enabled": true,
   "tags": [],
   "source": {
     "type": "git",
     "ref": "https://github.com/mattpocock/skills.git",
-    "subpath": "skills\\productivity\\handoff",
+    "subpath": "skills\\engineering\\diagnosing-bugs",
     "branch": null
   }
 }
