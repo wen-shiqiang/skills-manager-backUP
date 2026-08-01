@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "bd8e46f5-a5f4-466a-a4fa-daf40e9f16f6",
+  "path": "obsidian-vault",
+  "path_key": "obsidian-vault",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/mattpocock/skills.git",
+    "subpath": "skills\\personal\\obsidian-vault",
+    "branch": null
+  }
+}

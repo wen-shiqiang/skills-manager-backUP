@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "ce00c440-8a9a-4c9a-a810-c1577059812d",
+  "path": "request-refactor-plan",
+  "path_key": "request-refactor-plan",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/mattpocock/skills.git",
+    "subpath": "skills\\deprecated\\request-refactor-plan",
+    "branch": null
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "f5ee5ea9-ef14-4773-9e4a-1a777dcd3942",
+  "path": "tdd",
+  "path_key": "tdd",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/mattpocock/skills.git",
+    "subpath": "skills\\engineering\\tdd",
+    "branch": null
+  }
+}

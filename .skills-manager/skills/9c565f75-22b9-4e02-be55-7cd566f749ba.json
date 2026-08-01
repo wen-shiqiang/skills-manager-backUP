@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "9c565f75-22b9-4e02-be55-7cd566f749ba",
+  "path": "claude-handoff",
+  "path_key": "claude-handoff",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/mattpocock/skills.git",
+    "subpath": "skills\\in-progress\\claude-handoff",
+    "branch": null
+  }
+}
