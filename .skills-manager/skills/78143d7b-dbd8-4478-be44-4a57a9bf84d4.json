@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "78143d7b-dbd8-4478-be44-4a57a9bf84d4",
+  "path": "writing-great-skills-2",
+  "path_key": "writing-great-skills-2",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "mattpocock/skills/writing-great-skills",
+    "subpath": "skills\\productivity\\writing-great-skills",
+    "branch": null
+  }
+}
