@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "36b2d911-7eb8-44c8-aeae-f3af493f54a5",
+  "path": "qa-2",
+  "path_key": "qa-2",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "mattpocock/skills/qa",
+    "subpath": "skills\\deprecated\\qa",
+    "branch": null
+  }
+}
