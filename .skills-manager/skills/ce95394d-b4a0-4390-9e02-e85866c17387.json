@@ -8,7 +8,7 @@
   "source": {
     "type": "git",
     "ref": "https://github.com/mattpocock/skills.git",
-    "subpath": "skills\\deprecated\\ubiquitous-language",
+    "subpath": "skills",
     "branch": null
   }
 }
