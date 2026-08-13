@@ -10,7 +10,7 @@
     "openclaw": true,
     "opencode": false,
     "qoder": true,
-    "trae": true,
+    "trae": false,
     "trae_cn": false,
     "workbuddy": true
   }

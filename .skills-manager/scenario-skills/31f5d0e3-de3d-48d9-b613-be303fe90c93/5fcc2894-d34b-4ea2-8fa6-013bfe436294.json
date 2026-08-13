@@ -38,7 +38,7 @@
     "qoder": true,
     "qwen_code": true,
     "roo_code": true,
-    "trae": true,
+    "trae": false,
     "trae_cn": false,
     "windsurf": true,
     "workbuddy": true,

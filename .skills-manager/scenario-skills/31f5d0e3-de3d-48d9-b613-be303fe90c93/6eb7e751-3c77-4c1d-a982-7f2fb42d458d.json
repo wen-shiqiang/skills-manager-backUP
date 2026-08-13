@@ -11,7 +11,7 @@
     "opencode": false,
     "qclaw": true,
     "qoder": true,
-    "trae": true,
+    "trae": false,
     "trae_cn": false,
     "workbuddy": true
   }
