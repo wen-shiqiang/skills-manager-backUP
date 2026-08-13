@@ -31,7 +31,7 @@
     "mux": false,
     "neovate": false,
     "openclaw": false,
-    "opencode": true,
+    "opencode": false,
     "openhands": false,
     "pi": false,
     "pochi": false,
@@ -40,7 +40,7 @@
     "qwen_code": false,
     "roo_code": false,
     "trae": true,
-    "trae_cn": true,
+    "trae_cn": false,
     "windsurf": false,
     "workbuddy": false,
     "zencoder": false

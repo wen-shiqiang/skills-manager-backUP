@@ -8,11 +8,11 @@
     "codex": true,
     "cursor": true,
     "openclaw": true,
-    "opencode": true,
+    "opencode": false,
     "qclaw": true,
     "qoder": true,
     "trae": true,
-    "trae_cn": true,
+    "trae_cn": false,
     "workbuddy": true
   }
 }
