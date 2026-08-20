@@ -6,9 +6,9 @@
   "enabled": true,
   "tags": [],
   "source": {
-    "type": "import",
-    "ref": null,
-    "subpath": null,
-    "branch": null
+    "type": "git",
+    "ref": "https://github.com/JuliusBrussee/caveman/tree/main/skills/caveman",
+    "subpath": "skills/caveman",
+    "branch": "main"
   }
 }

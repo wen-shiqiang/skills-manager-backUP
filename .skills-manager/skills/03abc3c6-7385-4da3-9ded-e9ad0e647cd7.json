@@ -6,9 +6,9 @@
   "enabled": true,
   "tags": [],
   "source": {
-    "type": "import",
-    "ref": null,
-    "subpath": null,
-    "branch": null
+    "type": "git",
+    "ref": "https://github.com/jpcaparas/skills/tree/main/skills/zoom-out",
+    "subpath": "skills/zoom-out",
+    "branch": "main"
   }
 }

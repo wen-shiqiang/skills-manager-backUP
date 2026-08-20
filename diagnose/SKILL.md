@@ -1,5 +1,6 @@
 ---
 name: diagnose
+effort: high
 description: Disciplined diagnosis loop for hard bugs and performance regressions. Reproduce → minimise → hypothesise → instrument → fix → regression-test. Use when user says "diagnose this" / "debug this", reports a bug, says something is broken/throwing/failing, or describes a performance regression.
 ---
 
@@ -7,7 +8,7 @@ description: Disciplined diagnosis loop for hard bugs and performance regression
 
 A discipline for hard bugs. Skip phases only when explicitly justified.
 
-When exploring the codebase, use the project's domain glossary to get a clear mental model of the relevant modules, and check ADRs in the area you're touching.
+When exploring the codebase, build a clear mental model of the relevant modules and check any ADRs or design notes in the area you're touching.
 
 ## Phase 1 — Build a feedback loop
 
@@ -26,7 +27,7 @@ Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give
 7. **Property / fuzz loop.** If the bug is "sometimes wrong output", run 1000 random inputs and look for the failure mode.
 8. **Bisection harness.** If the bug appeared between two known states (commit, dataset, version), automate "boot at state X, check, repeat" so you can `git bisect run` it.
 9. **Differential loop.** Run the same input through old-version vs new-version (or two configs) and diff outputs.
-10. **HITL bash script.** Last resort. If a human must click, drive _them_ with `scripts/hitl-loop.template.sh` so the loop is still structured. Captured output feeds back to you.
+10. **HITL loop.** Last resort. If a human must click, drive _them_ with a structured script — show one instruction, wait for Enter, capture the answer (y/n, pasted error text) back to you — so the loop stays disciplined instead of ad-hoc.
 
 Build the right feedback loop, and the bug is 90% fixed.
 
@@ -50,7 +51,7 @@ Stop and say so explicitly. List what you tried. Ask the user for: (a) access to
 
 Do not proceed to Phase 2 until you have a loop you believe in.
 
-## Phase 2 — Reproduce
+## Phase 2 — Reproduce + minimise
 
 Run the loop. Watch the bug appear.
 
@@ -60,7 +61,9 @@ Confirm:
 - [ ] The failure is reproducible across multiple runs (or, for non-deterministic bugs, reproducible at a high enough rate to debug against).
 - [ ] You have captured the exact symptom (error message, wrong output, slow timing) so later phases can verify the fix actually addresses it.
 
-Do not proceed until you reproduce the bug.
+Then **minimise**: strip the repro down until only load-bearing elements remain. Remove inputs, config, steps, and data one at a time, re-running the loop after each cut — anything you can delete without the bug disappearing was never the cause. A minimal repro shrinks the hypothesis space before you generate a single hypothesis, and becomes the regression test in Phase 5.
+
+Do not proceed until you reproduce the bug and cannot strip the repro further.
 
 ## Phase 3 — Hypothesise
 
@@ -114,4 +117,4 @@ Required before declaring done:
 - [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
 - [ ] The hypothesis that turned out correct is stated in the commit / PR message — so the next debugger learns
 
-**Then ask: what would have prevented this bug?** If the answer involves architectural change (no good test seam, tangled callers, hidden coupling) hand off to the `/improve-codebase-architecture` skill with the specifics. Make the recommendation **after** the fix is in, not before — you have more information now than when you started.
+**Then ask: what would have prevented this bug?** If the answer involves architectural change (no good test seam, tangled callers, hidden coupling) hand off to the `/architecture-audit` skill with the specifics. Make the recommendation **after** the fix is in, not before — you have more information now than when you started.
