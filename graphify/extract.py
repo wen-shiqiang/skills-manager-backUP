@@ -45,7 +45,9 @@ from graphify.extractors.elixir import extract_elixir  # noqa: F401
 from graphify.extractors.fortran import _cpp_preprocess, extract_fortran  # noqa: F401
 from graphify.extractors.go import _GO_PREDECLARED_FUNCS, extract_go  # noqa: F401
 from graphify.extractors.json_config import extract_json  # noqa: F401
+from graphify.extractors.commonlisp import extract_commonlisp  # noqa: F401
 from graphify.extractors.markdown import extract_markdown  # noqa: F401
+from graphify.extractors.ocaml import extract_ocaml  # noqa: F401
 from graphify.extractors.pascal_forms import extract_delphi_form, extract_lazarus_form  # noqa: F401
 from graphify.extractors.powershell import extract_powershell, extract_powershell_manifest  # noqa: F401
 from graphify.extractors.razor import extract_razor  # noqa: F401
@@ -785,7 +787,14 @@ _JS_CONFIG = LanguageConfig(
     call_accessor_node_types=frozenset({"member_expression"}),
     call_accessor_field="property",
     call_accessor_object_field="object",
-    function_boundary_types=frozenset({"function_declaration", "generator_function_declaration", "arrow_function", "method_definition"}),
+    # `function_expression` belongs here so UNTRACKED inline/nested expressions
+    # reach walk_calls' existing closure handler, which already names the type
+    # (`_JS_CLOSURE_TYPES`). Without it the gate never opens, so such an
+    # expression's parameters and locals never fold into extra_locals for its
+    # subtree and read as by-name references (#2241 family). A top-level
+    # `const f = function (…) {}` is tracked via its declarator and was already
+    # fine; the inline/nested forms are what this covers.
+    function_boundary_types=frozenset({"function_declaration", "generator_function_declaration", "arrow_function", "method_definition", "function_expression", "generator_function"}),
     import_handler=_import_js,
 )
 
@@ -806,7 +815,8 @@ _TS_CONFIG = LanguageConfig(
     call_accessor_node_types=frozenset({"member_expression"}),
     call_accessor_field="property",
     call_accessor_object_field="object",
-    function_boundary_types=frozenset({"function_declaration", "generator_function_declaration", "arrow_function", "method_definition"}),
+    # `function_expression`: see the note on the JS config above.
+    function_boundary_types=frozenset({"function_declaration", "generator_function_declaration", "arrow_function", "method_definition", "function_expression", "generator_function"}),
     import_handler=_import_js,
 )
 
@@ -1863,9 +1873,99 @@ def extract_c(path: Path) -> dict:
     return _extract_generic(path, _C_CONFIG)
 
 
+# doctest / Catch2 name each test case with a string literal
+# (``TEST_CASE("name")``), which tree-sitter-cpp cannot parse: the construct
+# becomes an ERROR node and the whole test function is dropped from the graph
+# (issue #2594). Recover the test cases with a regex fallback, mirroring the
+# Spock handling of Groovy ``def "feature"()`` above. Scoped to doctest +
+# Catch2, which share this string-named-macro surface.
+#
+# Only the top-level test-declaration macros are recovered as callable nodes.
+# ``SUBCASE`` / ``SECTION`` are *nested* scopes inside a test body and
+# ``TEST_SUITE`` is a grouping wrapper, not a test function — emitting them as
+# file-contained nodes would fabricate wrong-granularity nodes and edges.
+_CPP_STRING_TEST_MACROS = (
+    "TEST_CASE", "TEST_CASE_TEMPLATE", "SCENARIO",
+)
+# The name group consumes C-string escapes (``\"``, ``\\``) so a test whose
+# name embeds an escaped quote is captured whole, not truncated at the escape.
+_CPP_STRING_TEST_RE = re.compile(
+    r'^[ \t]*(?:' + "|".join(_CPP_STRING_TEST_MACROS) + r')\s*\(\s*"((?:[^"\\]|\\.)+)"',
+    re.MULTILINE,
+)
+
+
+def _augment_cpp_string_tests(path: Path, result: dict) -> dict:
+    """Append callable nodes for doctest/Catch2 string-named test cases that
+    tree-sitter-cpp drops as ERROR nodes (issue #2594).
+
+    The generic C++ pass still recovers the surrounding functions and include
+    edges reliably, so this only adds the missing ``TEST_CASE("...")`` nodes and
+    their ``contains`` edge from the file node — it does not rebuild the result.
+
+    Matching is line-anchored raw text, mirroring the Spock fallback above; it is
+    deliberately not comment/preprocessor aware (a ``TEST_CASE`` disabled behind
+    a block comment or ``#if 0`` may still surface as a node, exactly as a
+    commented Spock ``def "feature"()`` would).
+    """
+    try:
+        source = path.read_text(errors="replace")
+    except OSError:
+        return result
+    matches = list(_CPP_STRING_TEST_RE.finditer(source))
+    if not matches:
+        return result
+
+    str_path = str(path)
+    stem = _file_stem(path)
+    file_nid = _make_id(str_path)
+    # A test name that is all punctuation (TEST_CASE("***")) normalizes to empty,
+    # so _make_id(stem, name) collapses onto this bare-stem id — colliding with
+    # the file's namespace and silently swallowing every later such test under
+    # one id (#1899). Detect that collapse and fall back to a line-positional id.
+    stem_collapse_id = _make_id(stem)
+    nodes = result.setdefault("nodes", [])
+    edges = result.setdefault("edges", [])
+    seen_ids = {n.get("id") for n in nodes}
+
+    for m in matches:
+        test_name = m.group(1)
+        line = source.count("\n", 0, m.start()) + 1
+        test_nid = _make_id(stem, test_name)
+        if test_nid == stem_collapse_id:
+            test_nid = _make_id(stem, "test", f"L{line}")
+        if test_nid in seen_ids:
+            continue
+        seen_ids.add(test_nid)
+        # Keep the raw test name as the label (mirroring the Spock fallback,
+        # which labels feature methods with their quoted string name).
+        nodes.append({
+            "id": test_nid,
+            "label": f'"{test_name}"',
+            "file_type": "code",
+            "source_file": str_path,
+            "source_location": f"L{line}",
+        })
+        edges.append({
+            "source": file_nid,
+            "target": test_nid,
+            "relation": "contains",
+            "confidence": "EXTRACTED",
+            "source_file": str_path,
+            "source_location": f"L{line}",
+            "weight": 1.0,
+        })
+    return result
+
+
 def extract_cpp(path: Path) -> dict:
-    """Extract functions, classes, and includes from a .cpp/.cc/.cxx/.hpp file."""
-    return _extract_generic(path, _CPP_CONFIG)
+    """Extract functions, classes, and includes from a .cpp/.cc/.cxx/.hpp file.
+
+    Recovers doctest/Catch2 ``TEST_CASE("name")`` test cases that tree-sitter-cpp
+    drops as ERROR nodes (issue #2594), mirroring the Spock fallback for Groovy.
+    """
+    result = _extract_generic(path, _CPP_CONFIG)
+    return _augment_cpp_string_tests(path, result)
 
 
 def extract_ruby(path: Path) -> dict:
@@ -4823,6 +4923,12 @@ _DISPATCH: dict[str, Any] = {
     ".svelte": extract_svelte,
     ".astro": extract_astro,
     ".dart": extract_dart,
+    ".ml": extract_ocaml,
+    ".mli": extract_ocaml,
+    ".lisp": extract_commonlisp,
+    ".cl": extract_commonlisp,
+    ".lsp": extract_commonlisp,
+    ".asd": extract_commonlisp,
     ".v": extract_verilog,
     ".sv": extract_verilog,
     ".svh": extract_verilog,
@@ -4875,6 +4981,12 @@ _EXTRA_FOR_EXTENSION = {
     ".hcl": "terraform",
     ".dm": "dm",
     ".dme": "dm",
+    ".ml": "ocaml",
+    ".mli": "ocaml",
+    ".lisp": "commonlisp",
+    ".cl": "commonlisp",
+    ".lsp": "commonlisp",
+    ".asd": "commonlisp",
 }
 
 # Substrings an extractor's error carries to classify why a dependency-backed
@@ -5518,19 +5630,36 @@ def extract(
         # results, so those fall back to the file-node-only arm.
         if len(_res.get("nodes", [])) <= 1 or _pe.get("multiline_error"):
             _rel = os.path.relpath(str(_p), str(root)).replace("\\", "/")
-            _syntax_error_files.append((_rel, _pe.get("first_error_line")))
+            # Symbols recovered from the file, excluding its own file node. This
+            # is what separates the two cases the warning otherwise blurs: a file
+            # that contributed nothing but its file node is a total loss, while
+            # one that yielded most of its symbols and lost an ERROR region is
+            # partial. "May be partially extracted" rendered both identically.
+            _kept = max(len(_res.get("nodes", [])) - 1, 0)
+            _syntax_error_files.append((_rel, _pe.get("first_error_line"), _kept))
     if _syntax_error_files:
+        def _describe_syntax_error(rel: str, line: "int | None", kept: int) -> str:
+            _where = f"first error at line {line}" if line else "syntax error"
+            _got = "no symbols extracted" if kept == 0 else f"{kept} symbol(s) extracted"
+            return f"{rel} ({_where}, {_got})"
+
         _shown = ", ".join(
-            f"{x} (first error at line {ln})" if ln else x
-            for x, ln in _syntax_error_files[:5]
+            _describe_syntax_error(*f) for f in _syntax_error_files[:5]
         )
         _more = (
             f" (+{len(_syntax_error_files) - 5} more)"
             if len(_syntax_error_files) > 5 else ""
         )
+        # No issue reference here. This message used to end in "(#2551)" for
+        # EVERY language, and #2551 is closed and Kotlin-specific ("bundled
+        # grammar rejects one-line type bodies"). It was the only lead the
+        # message offered, so a reader following it landed on a resolved problem
+        # in another language and concluded their own was already tracked
+        # (#2788). The file, the line and the symbol count are the actionable
+        # part; a single hardcoded number cannot be right for every grammar.
         print(
             f"  warning: {len(_syntax_error_files)} file(s) had syntax errors and "
-            f"may be partially extracted: {_shown}{_more} (#2551)",
+            f"may be partially extracted: {_shown}{_more}",
             file=sys.stderr, flush=True,
         )
 
@@ -6382,7 +6511,11 @@ def extract(
                     "relation": "indirect_call",
                     "context": rc.get("context", "argument"),
                     "confidence": "INFERRED",
-                    "confidence_score": 0.8,
+                    # 0.85, not 0.8: the rubric in references/extraction-spec.md
+                    # is a discrete set {0.55, 0.65, 0.75, 0.85, 0.95} and 0.8 is
+                    # not in it. Same tier, same meaning ("strong inference"),
+                    # now a value the documented scale actually contains (#2813).
+                    "confidence_score": 0.85,
                     "source_file": rc.get("source_file", ""),
                     "source_location": rc.get("source_location"),
                     "weight": 1.0,
@@ -6411,7 +6544,9 @@ def extract(
                 confidence_score = 1.0
             else:
                 confidence = "INFERRED"
-                confidence_score = 0.8
+                # 0.85 rather than 0.8 — the rubric's INFERRED set is discrete
+                # and does not contain 0.8 (#2813).
+                confidence_score = 0.85
             all_edges.append({
                 "source": caller,
                 "target": tgt,
