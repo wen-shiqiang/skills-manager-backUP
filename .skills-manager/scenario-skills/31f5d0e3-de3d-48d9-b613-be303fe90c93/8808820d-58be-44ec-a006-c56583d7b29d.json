@@ -16,6 +16,7 @@
     "cortex": false,
     "crush": false,
     "cursor": true,
+    "deepseek_harness": true,
     "droid": false,
     "gemini_cli": false,
     "github_copilot": false,
