@@ -167,19 +167,27 @@ def _rebuild_lock(out_dir: Path, *, blocking: bool = False):
     """Per-repo advisory lock around a rebuild.
 
     Yields True if acquired, False if another rebuild is already running and
-    ``blocking`` is False. Uses fcntl.flock so the lock is released
-    automatically if the process is killed (no stale-lock cleanup needed).
+    ``blocking`` is False. Uses fcntl.flock (POSIX) or msvcrt.locking (Windows)
+    so the lock is released automatically if the process is killed (no stale-lock
+    cleanup needed).
 
     While the lock is held, ``.rebuild.lock`` contains the owning PID followed
     by a newline so external pollers (publish scripts, etc.) can read it.
     On successful release the file is unlinked so downstream tooling that
     waits for the lock to clear by polling for its absence unblocks promptly.
 
-    Falls back to a no-op yield(True) on platforms without fcntl (Windows).
+    Falls back to a no-op yield(True) on platforms without fcntl or msvcrt.
     """
     try:
         import fcntl
     except ImportError:
+        fcntl = None
+    try:
+        import msvcrt
+    except ImportError:
+        msvcrt = None
+
+    if fcntl is None and msvcrt is None:
         yield True
         return
 
@@ -190,13 +198,33 @@ def _rebuild_lock(out_dir: Path, *, blocking: bool = False):
     # its PID before we attempt the flock.
     fh = open(lock_path, "a+", encoding="utf-8")
     acquired = False
+    # On Windows, byte-range locks are mandatory. Locking byte offset 4096 allows
+    # external readers to inspect the PID payload at byte 0 without PermissionError.
+    _win_lock_offset = 4096
     try:
-        flags = fcntl.LOCK_EX if blocking else (fcntl.LOCK_EX | fcntl.LOCK_NB)
-        try:
-            fcntl.flock(fh.fileno(), flags)
-        except BlockingIOError:
-            yield False
-            return
+        if fcntl is not None:
+            flags = fcntl.LOCK_EX if blocking else (fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                fcntl.flock(fh.fileno(), flags)
+            except BlockingIOError:
+                yield False
+                return
+        else:
+            if blocking:
+                while True:
+                    try:
+                        fh.seek(_win_lock_offset)
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        time.sleep(0.05)
+            else:
+                try:
+                    fh.seek(_win_lock_offset)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                except OSError:
+                    yield False
+                    return
         acquired = True
         # Replace any prior owner's PID with ours so external readers see a
         # single parseable line, not a digit-concatenation across rebuilds.
@@ -210,10 +238,17 @@ def _rebuild_lock(out_dir: Path, *, blocking: bool = False):
         yield True
     finally:
         if acquired:
-            try:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass
+            if fcntl is not None:
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            elif msvcrt is not None:
+                try:
+                    fh.seek(_win_lock_offset)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass
         fh.close()
         # Signal "rebuild done" by removing the lock file. Only the holder
         # unlinks; a non-acquiring caller leaves the existing lock in place.
@@ -287,6 +322,30 @@ def _report_root_label(watch_path: Path) -> str:
     if watch_path.is_absolute():
         return watch_path.name or str(watch_path)
     return Path.cwd().name if watch_path == Path(".") else str(watch_path)
+
+
+def _graphify_root_marker_value(watch_path: Path) -> str:
+    """The value to write into ``.graphify_root``.
+
+    Ordinarily preserves the caller-supplied path verbatim (relative or
+    absolute) so a committed ``graphify-out/.graphify_root`` stays portable
+    across clones and CI runners (#777): a relative marker like ``.`` is
+    meaningless outside the CWD it was written from, but every normal reader
+    of it (the generated git hooks, an unqualified ``graphify watch``) only
+    runs with that same CWD anyway.
+
+    That assumption breaks when ``GRAPHIFY_OUT`` itself is an absolute,
+    shared location (the multi-worktree / shared-output setup from #686):
+    the same marker file is then reachable from any worktree's CWD, not just
+    the one that wrote it, so a relative value silently resolves against
+    whichever worktree happens to be reading it instead of the one that was
+    actually scanned (#3375). Resolve to an absolute path in that case, since
+    portability across clones is not the goal there to begin with, the
+    output directory is already outside any one clone.
+    """
+    if Path(_GRAPHIFY_OUT).is_absolute():
+        return str(watch_path.resolve())
+    return str(watch_path)
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:
@@ -1714,7 +1773,7 @@ def _rebuild_code(
                             ctx_node[marker] = node[marker]
                     metadata = node.get("metadata")
                     if isinstance(metadata, dict):
-                        ruby_metadata = {
+                        fwd_metadata = {
                             key: metadata[key]
                             for key in (
                                 "ruby_resolution_schema",
@@ -1722,11 +1781,20 @@ def _rebuild_code(
                                 "ruby_lookup_unsafe",
                                 "ruby_reopened",
                                 "ruby_external_method_owners",
+                                # Erlang remote-call resolution keys (#3714): an
+                                # unchanged callee module must keep its
+                                # module/name/arity so `foo:bar()` still resolves
+                                # on an incremental rebuild, not just a full build.
+                                "language",
+                                "kind",
+                                "module",
+                                "name",
+                                "arity",
                             )
                             if key in metadata
                         }
-                        if ruby_metadata:
-                            ctx_node["metadata"] = ruby_metadata
+                        if fwd_metadata:
+                            ctx_node["metadata"] = fwd_metadata
                     resolution_context_nodes.append(ctx_node)
                 # #2437: the member-call resolvers map receiver type -> owning
                 # class -> method through contains/method edges; hand over the
@@ -1950,9 +2018,13 @@ def _rebuild_code(
                 graph_tmp.write_text(candidate_graph_text, encoding="utf-8")
                 os_replace_with_fallback(graph_tmp, existing_graph)
 
-            # Write the user-supplied path only after the candidate graph is
-            # accepted, so a refused shrink cannot mismatch graph and marker.
-            (out / ".graphify_root").write_text(str(watch_path), encoding="utf-8")
+            # Write the scan root only after the candidate graph is accepted,
+            # so a refused shrink cannot mismatch graph and marker. See
+            # _graphify_root_marker_value for why this isn't always the raw
+            # caller-supplied value (#3375).
+            (out / ".graphify_root").write_text(
+                _graphify_root_marker_value(watch_path), encoding="utf-8"
+            )
 
             try:
                 from graphify.detect import save_manifest
@@ -2169,7 +2241,11 @@ def _rebuild_code(
             sig_file.write_text(
                 json.dumps({str(k): v for k, v in cur_sigs.items()}), encoding="utf-8")
 
-        (out / ".graphify_root").write_text(str(watch_path), encoding="utf-8")
+        # See _graphify_root_marker_value for why this isn't always the raw
+        # caller-supplied value (#3375).
+        (out / ".graphify_root").write_text(
+            _graphify_root_marker_value(watch_path), encoding="utf-8"
+        )
 
         try:
             from graphify.detect import save_manifest
