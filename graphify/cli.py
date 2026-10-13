@@ -69,9 +69,10 @@ _READ_DENY = json.dumps({
     }
 }, ensure_ascii=False, separators=(",", ":")) + "\n"
 _HOOK_SOURCE_EXTS = (
-    '.py', '.js', '.cjs', '.ts', '.tsx', '.jsx', '.astro', '.vue', '.svelte', '.go',
+    '.py', '.js', '.cjs', '.ts', '.tsx', '.jsx', '.astro', '.vue', '.svelte', '.ejs', '.go',
     '.rs', '.java', '.rb', '.c', '.h', '.cpp', '.hpp', '.cc', '.cs', '.kt',
-    '.swift', '.php', '.scala', '.lua', '.sh', '.md', '.rst', '.txt', '.mdx',
+    '.swift', '.php', '.scala', '.lua', '.ps1', '.psm1', '.psd1',  # #4271: PowerShell sources are graphable too
+    '.sh', '.md', '.rst', '.txt', '.mdx',
 )
 _GEMINI_NUDGE_TEXT = (
     'graphify: knowledge graph at graphify-out/. For focused questions, run '
@@ -82,6 +83,11 @@ _GEMINI_NUDGE_TEXT = (
 
 
 _DEFAULT_NUDGE_GRAPH = "graphify-out/graph.json"
+
+# Exit codes of the lookups (explain, path, query), so a script can tell a
+# refusal from an answer: 0 answered, 3 ambiguous name, 4 no matching node.
+EXIT_AMBIGUOUS = 3
+EXIT_NOT_FOUND = 4
 
 
 def _nudge_for_out(nudge: str) -> str:
@@ -135,6 +141,12 @@ def _print_cloud_cta(out_dir: "Path") -> None:
         marker.write_text("1", encoding="utf-8")
     except Exception:
         pass
+
+
+def _graph_root_for(gp: Path) -> Path:
+    """The analysed repo root for a graph file: <root>/<GRAPHIFY_OUT_NAME>/graph.json, else the file's own directory."""
+    from graphify.paths import GRAPHIFY_OUT_NAME
+    return gp.parent.parent if gp.parent.name == GRAPHIFY_OUT_NAME else gp.parent
 
 
 def _default_graph_path() -> str:
@@ -683,7 +695,7 @@ def _prune_graph_json_sources(graph_path: Path, stale_sources: list[str]) -> int
     from graphify.export import backup_if_protected as _backup
     _backup(graph_path.parent)
     from graphify.paths import write_json_atomic
-    write_json_atomic(graph_path, data, indent=2)
+    write_json_atomic(graph_path, data, compact=True)
     return n_removed
 
 
@@ -763,6 +775,73 @@ def _query_stamp_fresh() -> bool:
         return False
 
 
+def _nudge_allowed(payload: dict) -> bool:
+    """Whether to emit a soft read/search nudge for this tool call (#3435).
+
+    The nudge is advisory context that used to be re-injected on EVERY qualifying
+    Read/Glob/Grep/Bash call — thousands of times per session, far more tokens
+    than the graph queries it asks for. Budgets are per agent: the session id,
+    plus the ``agent_id`` Claude Code sends for subagents (which share the
+    parent's session id but start with an empty context). Per agent:
+
+    * the first nudge always fires. The query stamp is project-wide and cannot
+      say which agent queried, so it must not silence a fresh subagent or session;
+    * after that, a fresh query stamp (query/explain/path within
+      GRAPHIFY_HOOK_STRICT_TTL) means someone oriented recently, so no nudge;
+    * at most GRAPHIFY_HOOK_NUDGE_CAP nudges (default 5; 0 or a non-number
+      disables the cap), counted in a marker next to the strict-mode ones.
+
+    Calls without a session id cannot be counted: only the stamp applies.
+    Fail-open: on a marker error, only the stamp applies.
+    """
+    from graphify.paths import out_path, write_text_atomic
+    import hashlib
+    stamp = _query_stamp_fresh()
+    try:
+        cap = int(os.environ.get("GRAPHIFY_HOOK_NUDGE_CAP", "5"))
+    except ValueError:
+        cap = 0
+    key = re.sub(r"[^A-Za-z0-9_-]", "_", str(payload.get("session_id") or ""))[:64]
+    if not key:
+        return not stamp
+    agent = str(payload.get("agent_id") or "")
+    if agent:
+        # Hashed so long ids cannot truncate two agents into one key.
+        key += "-" + hashlib.sha256(agent.encode("utf-8")).hexdigest()[:16]
+    try:
+        d = out_path("cache", "hook_sessions")
+        d.mkdir(parents=True, exist_ok=True)
+        marker = d / f"{key}.nudges"
+        try:
+            count = int(marker.read_text(encoding="utf-8").strip() or "0")
+        except (OSError, ValueError):
+            count = 0
+        if count and stamp:
+            return False
+        if 0 < cap <= count:
+            return False
+        write_text_atomic(marker, str(count + 1))
+        if count == 0:
+            _gc_hook_session_markers(d)
+        return True
+    except Exception:
+        return not stamp
+
+
+def _gc_hook_session_markers(d: "Path") -> None:
+    """Best-effort removal of per-session hook markers older than 24h."""
+    try:
+        cutoff = time.time() - 86400
+        for entry in os.scandir(d):
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    os.unlink(entry.path)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
 def _mark_session_denied(session_id: str) -> bool:
     """Atomically claim a one-time strict block for this session. Returns True only
     on the FIRST call for a given session id (O_EXCL create wins once); every later
@@ -777,16 +856,7 @@ def _mark_session_denied(session_id: str) -> bool:
         d.mkdir(parents=True, exist_ok=True)
         fd = os.open(str(d / f"{sid}.denied"), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
         os.close(fd)
-        try:
-            cutoff = time.time() - 86400
-            for entry in os.scandir(d):
-                try:
-                    if entry.stat().st_mtime < cutoff:
-                        os.unlink(entry.path)
-                except OSError:
-                    pass
-        except OSError:
-            pass
+        _gc_hook_session_markers(d)
         return True
     except FileExistsError:
         return False
@@ -922,7 +992,8 @@ def _run_hook_guard(kind: str, strict: bool = False) -> None:
             # grep. Nudge-only, even in strict mode — see the docstring.
             is_grep_tool = not cmd_str and bool(t.get("pattern"))
             is_bash_search = bool(cmd_str) and _bash_invokes_search(cmd_str)
-            if (is_grep_tool or is_bash_search) and out_path("graph.json").is_file():
+            if (is_grep_tool or is_bash_search) and out_path("graph.json").is_file() \
+                    and _nudge_allowed(d):
                 sys.stdout.write(_nudge_for_out(_SEARCH_NUDGE))
         elif kind == "read":
             vals = [str(t.get("file_path") or ""), str(t.get("pattern") or ""), str(t.get("path") or "")]
@@ -1033,7 +1104,8 @@ def _run_hook_guard(kind: str, strict: bool = False) -> None:
             except Exception:
                 pass
             if stale:
-                sys.stdout.write(_nudge_for_out(_READ_NUDGE_STALE))
+                if _nudge_allowed(d):
+                    sys.stdout.write(_nudge_for_out(_READ_NUDGE_STALE))
                 return
             # Strict block: Read tool only, first time per session, not recently
             # oriented, and the file is demonstrably indexed.
@@ -1044,7 +1116,8 @@ def _run_hook_guard(kind: str, strict: bool = False) -> None:
                     and _mark_session_denied(str(d.get("session_id") or "")):
                 sys.stdout.write(_READ_DENY)
                 return
-            sys.stdout.write(_nudge_for_out(_READ_NUDGE))
+            if _nudge_allowed(d):
+                sys.stdout.write(_nudge_for_out(_READ_NUDGE))
     except Exception:
         pass
 
@@ -1308,9 +1381,9 @@ def dispatch_command(cmd: str) -> None:
             sys.exit(1)
     elif cmd == "query":
         if len(sys.argv) < 3:
-            print("Usage: graphify query \"<question>\" [--dfs] [--context C] [--budget N] [--graph path]", file=sys.stderr)
+            print("Usage: graphify query \"<question>\" [--dfs] [--context C] [--seed X] [--budget N] [--graph path]", file=sys.stderr)
             sys.exit(1)
-        from graphify.serve import _query_graph_text
+        from graphify.serve import _QUERY_NO_MATCH, _query_graph_text
         from graphify.security import sanitize_label
         from networkx.readwrite import json_graph
         from graphify import querylog
@@ -1320,6 +1393,7 @@ def dispatch_command(cmd: str) -> None:
         budget = 2000
         graph_path = _default_graph_path()
         context_filters: list[str] = []
+        seeds: list[str] = []
         args = sys.argv[3:]
         i = 0
         while i < len(args):
@@ -1343,6 +1417,16 @@ def dispatch_command(cmd: str) -> None:
             elif args[i].startswith("--context="):
                 context_filters.append(args[i].split("=", 1)[1])
                 i += 1
+            elif args[i] == "--seed" and i + 1 < len(args):
+                seeds.append(args[i + 1])
+                i += 2
+            elif args[i].startswith("--seed=") and args[i].split("=", 1)[1]:
+                seeds.append(args[i].split("=", 1)[1])
+                i += 1
+            elif args[i] == "--seed" or args[i] == "--seed=":
+                # Fail closed: a --seed with no value must not quietly become a keyword query.
+                print("error: --seed needs a value (node id, label or file path)", file=sys.stderr)
+                sys.exit(1)
             elif args[i] == "--graph" and i + 1 < len(args):
                 graph_path = args[i + 1]
                 i += 2
@@ -1414,6 +1498,9 @@ def dispatch_command(cmd: str) -> None:
             token_budget=budget,
             context_filters=context_filters,
             graph_path=str(gp),
+            seeds=seeds or None,
+            # Same root derivation as `affected` (#2706): <root>/graphify-out/graph.json.
+            seed_root=_graph_root_for(gp),
         )
         querylog.log_query(
             kind="query",
@@ -1424,9 +1511,12 @@ def dispatch_command(cmd: str) -> None:
             depth=2,
             token_budget=budget,
             duration_ms=(_time.perf_counter() - _t0) * 1000,
+            seeds=seeds or None,
         )
         _touch_query_stamp(gp)
         print(_result)
+        if _result == _QUERY_NO_MATCH:
+            sys.exit(EXIT_NOT_FOUND)
     elif cmd == "affected":
         if len(sys.argv) < 3:
             print("Usage: graphify affected \"<node-or-label>\" [--relation R] [--depth N] [--graph path]", file=sys.stderr)
@@ -1661,7 +1751,7 @@ def dispatch_command(cmd: str) -> None:
                 file=sys.stderr,
             )
             sys.exit(1)
-        from graphify.serve import _resolve_path_endpoint
+        from graphify.serve import _is_ambiguity_refusal, _resolve_path_endpoint
         from networkx.readwrite import json_graph
         import networkx as _nx
 
@@ -1720,7 +1810,7 @@ def dispatch_command(cmd: str) -> None:
         ):
             if _err or _nid is None:
                 print(_err or f"No node matching '{_label}' found.", file=sys.stderr)
-                sys.exit(1)
+                sys.exit(EXIT_AMBIGUOUS if _is_ambiguity_refusal(_err) else EXIT_NOT_FOUND)
         # Ambiguity guard: when both queries resolve to the same node, the
         # shortest path is trivially zero hops, which is almost never what the
         # caller wanted (see bug #828).
@@ -1730,7 +1820,7 @@ def dispatch_command(cmd: str) -> None:
                 f"node '{src_nid}'. Use a more specific label or the exact node ID.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            sys.exit(EXIT_AMBIGUOUS)
         for _name, _scored, _nid in (
             ("source", src_scored, src_nid),
             ("target", tgt_scored, tgt_nid),
@@ -1835,14 +1925,15 @@ def dispatch_command(cmd: str) -> None:
 
     elif cmd == "explain":
         if len(sys.argv) < 3:
-            print('Usage: graphify explain "<node>" [--graph path]', file=sys.stderr)
+            print('Usage: graphify explain "<node>" [--all] [--graph path]', file=sys.stderr)
             sys.exit(1)
-        from graphify.serve import _ambiguity_message, _find_node, find_node_ambiguity
+        from graphify.serve import _is_ambiguity_refusal, _resolve_single_node
         from networkx.readwrite import json_graph
 
         label = sys.argv[2]
         graph_path = _default_graph_path()
         args = sys.argv[3:]
+        show_all = "--all" in args
         for i, a in enumerate(args):
             if a == "--graph" and i + 1 < len(args):
                 graph_path = args[i + 1]
@@ -1860,15 +1951,10 @@ def dispatch_command(cmd: str) -> None:
             G = json_graph.node_link_graph(_raw, edges="links")
         except TypeError:
             G = json_graph.node_link_graph(_raw)
-        matches = _find_node(G, label)
-        if not matches:
-            print(f"No node matching '{label}' found.")
-            sys.exit(0)
-        rivals = find_node_ambiguity(G, label)
-        if rivals:
-            print(_ambiguity_message(G, label, rivals))
-            sys.exit(1)
-        nid = matches[0]
+        nid, refusal = _resolve_single_node(G, label)
+        if nid is None:
+            print(refusal)
+            sys.exit(EXIT_AMBIGUOUS if _is_ambiguity_refusal(refusal) else EXIT_NOT_FOUND)
         d = G.nodes[nid]
         print(f"Node: {d.get('label', nid)}")
         print(f"  ID:        {nid}")
@@ -1921,7 +2007,8 @@ def dispatch_command(cmd: str) -> None:
         if connections:
             print(f"\nConnections ({len(connections)}):")
             connections.sort(key=lambda c: G.degree(c[1]), reverse=True)
-            for direction, nb, edata in connections[:20]:
+            shown = connections if show_all else connections[:20]
+            for direction, nb, edata in shown:
                 rel = edata.get("relation", "")
                 conf = edata.get("confidence", "")
                 arrow = "-->" if direction == "out" else "<--"
@@ -1932,9 +2019,9 @@ def dispatch_command(cmd: str) -> None:
                 sfile = edata.get("source_file") or ""
                 at = f" {sfile}:{loc}" if loc else ""
                 print(f"  {arrow} {G.nodes[nb].get('label', nb)} [{rel}] [{conf}]{at}")
-            if len(connections) > 20:
-                remainder = connections[20:]
-                print(f"  ... and {len(remainder)} more")
+            if len(connections) > len(shown):
+                remainder = connections[len(shown):]
+                print(f"  ... and {len(remainder)} more (--all lists all {len(connections)})")
                 # #2009: a bare count silently hides the answer on high-degree
                 # nodes ("who calls this, what's the impact?"). Group the cut
                 # connections by direction + file so their shape is visible
@@ -2724,7 +2811,7 @@ def dispatch_command(cmd: str) -> None:
             if _ts is not None and _tt is not None:
                 _link["source"], _link["target"] = _ts, _tt
         from graphify.paths import write_json_atomic
-        write_json_atomic(_current_path, out_data, indent=2)
+        write_json_atomic(_current_path, out_data, compact=True)
         sys.exit(0)
 
     elif cmd == "merge-graphs":
@@ -2915,7 +3002,7 @@ def dispatch_command(cmd: str) -> None:
         out_data["hyperedges"] = merged.graph.get("hyperedges", [])
         out_path.parent.mkdir(parents=True, exist_ok=True)
         from graphify.paths import write_json_atomic as _wja
-        _wja(out_path, out_data, indent=2)
+        _wja(out_path, out_data, compact=True)
         print(f"Merged {len(graphs)} graphs -> {merged.number_of_nodes()} nodes, {merged.number_of_edges()} edges")
         print(f"Written to: {out_path}")
 
@@ -4040,6 +4127,7 @@ def dispatch_command(cmd: str) -> None:
                         for _marker in (
                             "_callable", "_callable_class", "_elixir_module",
                             "_rust_impl_key", "_rust_declaration_count",
+                            "_ts_public_twin", "_py_property", "_java_ret",
                         ):
                             if _node.get(_marker):
                                 _ctx_node[_marker] = _node[_marker]
@@ -4282,12 +4370,32 @@ def dispatch_command(cmd: str) -> None:
                 _omitted_files = list(fresh.get("uncovered_files") or [])
                 if _omitted_files or _partial_semantic_files:
                     _extraction_incomplete = True
+                    _coverage_note = ""
+                    if _omitted_files and not _partial_semantic_files:
+                        # #4101: every omitted file here came back from a
+                        # chunk that was NOT truncated or hollow — the model
+                        # returned a complete, well-formed response that
+                        # simply did not address every dispatched file. A
+                        # bare "a re-run will retry them" reads as transient,
+                        # but re-sending the same oversized chunk reproduces
+                        # the same omission every time, so a retry loop with
+                        # no --token-budget change looks like extraction
+                        # never finishing rather than what it actually is: a
+                        # coverage gap at this chunk size.
+                        _coverage_note = (
+                            " None of this run's chunks came back truncated — the "
+                            "model returned complete, well-formed responses that "
+                            "simply did not address every file. Retrying with the "
+                            "same --token-budget will likely omit the same files "
+                            "again; try a smaller --token-budget to split the "
+                            "corpus into more, smaller chunks."
+                        )
                     print(
                         f"[graphify extract] semantic extraction is incomplete: "
                         f"{len(_omitted_files)} dispatched file(s) produced no nodes and "
-                        f"{len(_partial_semantic_files)} came back truncated or hollow. "
-                        f"The shrink guard stays armed for this write; pass "
-                        f"--allow-partial to overwrite a larger existing graph anyway.",
+                        f"{len(_partial_semantic_files)} came back truncated or hollow."
+                        f"{_coverage_note} The shrink guard stays armed for this write; "
+                        f"pass --allow-partial to overwrite a larger existing graph anyway.",
                         file=sys.stderr,
                     )
                 try:
@@ -4383,6 +4491,14 @@ def dispatch_command(cmd: str) -> None:
         # first means semantic node attributes win on collision (richer labels
         # for symbols also referenced in docs). Hyperedges only come from the
         # semantic side.
+        # Everything in sem_result is semantic tier - fresh results and cache
+        # hits alike - so say so before the merge (#2843): an unstamped item
+        # is classified by the shape of its source_location, and a doc node
+        # located at 'L12' would read as AST and be deleted by the next
+        # incremental rebuild. Fresh results already carry the stamp
+        # (llm._stamp_semantic_origin); cache entries from before it do not.
+        from graphify.llm import _stamp_semantic_origin as _stamp_sem
+        _stamp_sem(sem_result)
         merged: dict = {
             "nodes": list(ast_result.get("nodes", [])) + list(sem_result.get("nodes", [])) + list(pg_result.get("nodes", [])) + list(cargo_result.get("nodes", [])),
             "edges": list(ast_result.get("edges", [])) + list(sem_result.get("edges", [])) + list(pg_result.get("edges", [])) + list(cargo_result.get("edges", [])),
@@ -4597,7 +4713,7 @@ def dispatch_command(cmd: str) -> None:
             _write_json_atomic(
                 graph_json_path,
                 {k: v for k, v in merged.items() if k not in _RUN_ONLY_KEYS},
-                indent=2,
+                compact=True,
             )
             try:
                 # Record the scan root so a later build_merge / update runbook can
