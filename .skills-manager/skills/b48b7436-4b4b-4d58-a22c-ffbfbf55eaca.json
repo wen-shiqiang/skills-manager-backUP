@@ -6,9 +6,9 @@
   "enabled": true,
   "tags": [],
   "source": {
-    "type": "skillssh",
-    "ref": "sickn33/agentic-awesome-skills/design-taste-frontend",
-    "subpath": "skills\\design-taste-frontend",
-    "branch": null
+    "type": "git",
+    "ref": "https://github.com/Leonxlnx/taste-skill",
+    "subpath": "skills/taste-skill",
+    "branch": "main"
   }
 }

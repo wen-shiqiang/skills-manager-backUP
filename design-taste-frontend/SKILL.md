@@ -1,257 +1,278 @@
 ---
 name: design-taste-frontend
-description: "Use when building high-agency frontend interfaces with strict design taste, calibrated color, responsive layout, and motion rules."
-category: frontend
-risk: safe
-source: community
-source_repo: Leonxlnx/taste-skill
-source_type: community
-date_added: "2026-04-17"
-author: Leonxlnx
-tags: [frontend, design, ui, react]
-tools: [claude, cursor, codex, antigravity]
+description: >-
+  tasteskill 2.5.0, the anti-slop frontend skill. Builds professional company websites at the level
+  of figma.com and x.ai: plain copy, one system, one section per screen, equal edges, real
+  photographs and real product UI (product renders when there are no photographs), with shader
+  effects, scenes and moments only on tech, gaming and software pages, quiet micro-interactions,
+  and a checker that enforces it in a real browser. Use this whenever you build, design, redesign,
+  restyle, polish or review a landing page, company, product, shop, cafe, hotel, studio, SaaS, AI,
+  developer-tool or game site, in any stack (HTML/CSS, React, Next.js, Vue, Svelte, Astro,
+  Tailwind), or when the user says a page looks generic, templated or "AI-made".
 ---
-# High-Agency Frontend Skill
 
-## When to Use
+# tasteskill 2.5
 
-- Use when the user asks to create, improve, or review frontend UI with strong design taste and anti-generic constraints.
-- Use when React, Next.js, Tailwind, motion, component states, typography, spacing, color, or responsive behavior need senior-level design judgment.
-- Use when the output must override common LLM UI biases such as centered heroes, purple gradients, card overuse, poor states, and fragile layouts.
+Build the website a good company would ship: it says plainly what is sold, shows the real thing on
+every screen, and looks made for this client, not from a template and not like an art piece.
+figma.com and x.ai are the bar (in words: `layout-v4.md` section 1).
 
-## Example
+`<skill>` is this folder. It needs Node 22+ and Chrome, Edge or Chromium (ffmpeg optional). Copy `<skill>/assets` into the project's
+`assets` and start from `assets/starter.html`.
 
-**User request:**
+## House rules
 
-> Review this interface with @design-taste-frontend, identify the highest-impact design problems, and propose an implementation-ready improvement.
+These nine win over everything else in this skill.
 
-## Limitations
+1. **No caption or description under any image, render or visual.** Licence credits go in one
+   footer line.
+2. **Every visual renders, never an empty ground,** at 1440, 1024, 768 and 390.
+3. **One section per screen:** the hero alone on the first screen, every section exactly one or
+   two screens tall at 1440x900, no second section heading peeking in.
+4. **Equal left and right content edges.**
+5. **Hover micro-animations:** a linked card lifts 2px, a photo zooms 1.02-1.03 inside its frame,
+   buttons step on hover and press on click, underlines draw, card loops cycle in 2.5-4 s, repeat
+   and restart on hover. The motion layer does it; never strip or override it. No tilt, carousels
+   or timed tabs.
+6. **More and better real photographs where they fit;** nicer backgrounds; better heroes, layouts
+   and fonts.
+7. **Real full-colour icons** (a known product's real icon, never a drawn one); small diagram
+   visuals in cards (a hub with branches; one input, a main processor, three parallel lanes;
+   pulses running along the lines).
+8. **The big award-site scenes and creative moments are part of the skill,** but shader effects
+   only where the trade has a technical subject (tech, AI, developer tools, gaming, fintech,
+   hardware), never on a local cafe, bakery, guesthouse or shop: those get photographs.
+9. **Addresses:** street and district only (no street given: the district), no house number, postcode or coordinates; no register
+   or VAT numbers; no phone in a real format; contacts on `.example`.
 
-- This skill provides frontend design and implementation guidance; it does not replace project-specific product requirements, accessibility review, or user testing.
-- Verify framework versions, installed dependencies, responsive behavior, and build output in the target repository before treating generated UI as production-ready.
-- Do not force these design rules when the existing product, brand system, or platform conventions require a different visual direction.
+## 1. The kind of business decides everything
 
+Write the kind on the plan's first line and declare it on the page: the page type on
+`<html data-type>` and `<meta name="page-type">` (the same value), and `<meta name="site-kind">`;
+a place adds `<meta name="page-kind" content="place">`. The dealers take the last column
+(`start.mjs --page`, `moments.mjs --page`), the hero dealer the page type; `consistency.mjs` reads
+the metas.
 
-## 1. ACTIVE BASELINE CONFIGURATION
-* DESIGN_VARIANCE: 8 (1=Perfect Symmetry, 10=Artsy Chaos)
-* MOTION_INTENSITY: 6 (1=Static/No movement, 10=Cinematic/Magic Physics)
-* VISUAL_DENSITY: 4 (1=Art Gallery/Airy, 10=Pilot Cockpit/Packed Data)
+| Brief | page type | site-kind | kind |
+|---|---|---|---|
+| App, SaaS, AI, developer tool, fintech or banking app, a studio selling its own software | software | software | software |
+| A game, a studio launching its game | software | gaming | gaming |
+| Hardware or a tech device (a drone, a robot arm, a keyboard) | product | tech | tech |
+| Any other physical product or brand (a chair, a bike, coffee beans sold online) | product | other | product |
+| People are hired: clinic, law firm, agency, creative studio, trade | service | other | service |
+| People come to it: cafe, bar, bakery, restaurant, guesthouse, small hotel, shop, florist, bike shop, gym, local studio | place | other | place |
 
-**AI Instruction:** The standard baseline for all generations is strictly set to these values (8, 6, 4). Do not ask the user to edit this file. Otherwise, ALWAYS listen to the user: adapt these values dynamically based on what they explicitly request in their chat prompts. Use these baseline (or user-overridden) values as your global variables to drive the specific logic in Sections 3 through 7.
+A maker that also opens its door or teaches (a ceramics studio, a bakery with a web shop) is a
+**place**; its web shop becomes the goods section. It is a product only when nothing happens at the door.
 
-## 2. DEFAULT ARCHITECTURE & CONVENTIONS
-Unless the user explicitly specifies a different stack, adhere to these structural constraints to maintain consistency:
+"Tech" below means site-kind software, gaming or tech; "other" is everything else. Effects,
+scenes, moments, loops, counts, CSS grounds, dark pages and dark heroes are tech only. An other
+page is photographs, flat colour, type, real icons and the hover layer.
 
-* **DEPENDENCY VERIFICATION [MANDATORY]:** Before importing ANY 3rd party library (e.g. `framer-motion`, `lucide-react`, `zustand`), you MUST check `package.json`. If the package is missing, you MUST output the installation command (e.g. `npm install package-name`) before providing the code. **Never** assume a library exists.
-* **Framework & Interactivity:** React or Next.js. Default to Server Components (`RSC`).
-    * **RSC SAFETY:** Global state works ONLY in Client Components. In Next.js, wrap providers in a `"use client"` component.
-    * **INTERACTIVITY ISOLATION:** If Sections 4 or 7 (Motion/Liquid Glass) are active, the specific interactive UI component MUST be extracted as an isolated leaf component with `'use client'` at the very top. Server Components may fetch data and render dynamic server output; isolate browser state/effects and event handlers in Client Components.
-* **State Management:** Use local `useState`/`useReducer` for isolated UI. Use global state strictly for deep prop-drilling avoidance.
-* **Styling Policy:** Use Tailwind CSS (v3/v4) for 90% of styling.
-    * **TAILWIND VERSION LOCK:** Check `package.json` first. Do not use v4 syntax in v3 projects.
-    * **T4 CONFIG GUARD:** For v4, do NOT use `tailwindcss` plugin in `postcss.config.js`. Use `@tailwindcss/postcss` or the Vite plugin.
-* **ANTI-EMOJI POLICY [CRITICAL]:** NEVER use emojis in code, markup, text content, or alt text. Replace symbols with high-quality icons (Radix, Phosphor) or clean SVG primitives. Emojis are BANNED.
-* **Responsiveness & Spacing:**
-  * Standardize breakpoints (`sm`, `md`, `lg`, `xl`).
-  * Contain page layouts using `max-w-[1400px] mx-auto` or `max-w-7xl`.
-  * **Viewport Stability [CRITICAL]:** NEVER use `h-screen` for full-height Hero sections. Choose `min-h-[100svh]` for a stable smallest viewport or `100dvh` when tracking browser chrome is intended; test address-bar/keyboard changes because dvh can resize while scrolling.
-  * **Grid over Flex-Math:** NEVER use complex flexbox percentage math (`w-[calc(33%-1rem)]`). ALWAYS use CSS Grid (`grid grid-cols-1 md:grid-cols-3 gap-6`) for reliable structures.
-* **Icons:** You MUST use exactly `@phosphor-icons/react` or `@radix-ui/react-icons` as the import paths (check installed version). Use each installed icon library’s supported weight/stroke API; Radix icons and Phosphor do not share a universal strokeWidth contract.
+## 2. The page plan by kind
 
+The full plans, deal lists and section order: `references/sections.md`.
 
-## 3. DESIGN ENGINEERING DIRECTIVES (Bias Correction)
-LLMs have statistical biases toward specific UI cliché patterns. Proactively construct premium interfaces using these engineered rules:
+- **Place** (a cafe, bakery, guesthouse, shop). Photographs lead: 12 to 20 on the full page, 8 to
+  12 compact, under 8 frames the 3-screen short page, whatever the trade; no client photographs: the draft path
+  (`photos.md`), then count. The hero a photograph whenever a frame fits (a remote place: its region's
+  landscape), the visit block on screen two, the offer, the place, orders or booking.
+  **Variety without effects** (`sections.md` section 4): the offer and the place deal different
+  compositions, never two sections round one picture; one type moment (the address or name set large); one main action a screen; list text 16px. Flat grounds, square
+  photographs, one button style, the phone bar; no effect, ground, moment, loop, fragment, diagram
+  or tab.
+- **Product and service** (site-kind other). Photographs lead: the product, the people, the rooms,
+  the work, two or more a screen on a product page. Real icons for the tools a studio uses; one
+  still diagram at most; flat grounds and one brand band. No shader effect, print, grain, gradient,
+  moment, scene or loop; WebGL only for the product render. **A physical product with no
+  photographs is shown:** its render (`assets/objects/product-render`, stills) leads the hero,
+  then the full product page, never a drawing or mood stock (`sections.md`).
+- **Every product page** (photographed or rendered, hardware too; the bar is Figure and 1X;
+  `sections.md`, Product): the product **big** where it stands
+  whole (most of its frame, or on the ground at anchor scale), never mid-size in a grey rounded
+  panel on a grey ground; **a different picture each section**, never one view twice; **every headline promise pictured** (a family bike shows the child bench); dealt
+  compositions, no structure twice, one contrasting ground; the **swatch changes the picture**,
+  every colour shown once; **no fact twice**; buttons step and press (rule 5).
+- **Tech** (software, gaming, hardware). The client's own subject leads at true size. Software: its
+  own UI as live HTML showing what it works on (a code-review tool: a red and green diff with its
+  Accept action) in one `app-frame`, never a generic dashboard or only fragments on panels; cards:
+  fragments on lit panels, pulsing diagrams, real icons. Hardware: its photographs, else its
+  render (as above), never a split hero of only an order form or a drawn SVG. A game: its name in
+  the h1, a launch line, its world as full-bleed key art (else its render), an effect never in its
+  place (`sections.md`, Gaming). **60 to 80 words a screen** outside UI mocks (`copy.md`). By
+  deal: **one effect** (a shader ground in the hero or the one `[data-visual]` frame, a WebGL
+  part, an object or one big scene) and **one or two moments** in their own sections; four live
+  WebGL contexts at most; no card moves with the scroll (`effects-usage.md`).
+- **One object never carries the page.** The product or hero object whole leads the hero and **two more sections at
+  most**; another kind of visual the brief supports carries the rest (`sections.md` section 1,
+  its table): a game's world, crew and map; hardware's use at the bench, an exploded or parts
+  view; a still diagram card, a type moment, a context photograph where the trade allows.
+- **The client's own assets get slots.** A trailer, key art, screenshots, CAD renders or a motion
+  video the brief names each get a frame that reads finished now (a real `<video>` with a kit
+  poster, a play control only when there is a page or file to play, three to five world
+  captures from the kit, a CAD frame), named in a comment for the client's file, never empty
+  (`sections-library.md`, client-slots).
 
-**Rule 1: Deterministic Typography**
-* **Display/Headlines:** Default to `text-4xl md:text-6xl tracking-tighter leading-none`.
-    * **ANTI-SLOP:** Discourage `Inter` for "Premium" or "Creative" vibes. Force unique character using `Geist`, `Outfit`, `Cabinet Grotesk`, or `Satoshi`.
-    * **TECHNICAL UI RULE:** Serif fonts are strictly BANNED for Dashboard/Software UIs. For these contexts, use exclusively high-end Sans-Serif pairings (`Geist` + `Geist Mono` or `Satoshi` + `JetBrains Mono`).
-* **Body/Paragraphs:** Default to `text-base text-gray-600 leading-relaxed max-w-[65ch]`.
+## 3. What serves which page
 
-**Rule 2: Color Calibration**
-* **Constraint:** Max 1 Accent Color. Saturation < 80%.
-* **THE LILA BAN:** The "AI Purple/Blue" aesthetic is strictly BANNED. No purple button glows, no neon gradients. Use absolute neutral bases (Zinc/Slate) with high-contrast, singular accents (e.g. Emerald, Electric Blue, or Deep Rose).
-* **COLOR CONSISTENCY:** Stick to one palette for the entire output. Do not fluctuate between warm and cool grays within the same project.
+Open the reference of every asset family the page uses first. A dash means never.
 
-**Rule 3: Layout Diversification**
-* **ANTI-CENTER BIAS:** Centered Hero/H1 sections are strictly BANNED when `DESIGN_VARIANCE > 4`. Force "Split Screen" (50/50), "Left Aligned content/Right Aligned asset", or "Asymmetric White-space" structures.
+| Need | Asset | Software, gaming | Hardware | Product, service | Place | Reference |
+|---|---|---|---|---|---|---|
+| Heights, edges, heroes, type | `system.css`, `assets/layout` | dealt hero | dealt hero | dealt hero | place hero | `layout-v4.md` |
+| Sections and recipes | `starter.html` | its plan | product plan | its plan | place plan | `sections.md`, `sections-library.md` |
+| Tokens, grid, buttons, nav, footer, colour | `system.css`, `system.js` | yes | yes | yes | place tokens | `system.md` |
+| Copy, contacts, credits | | yes | yes | yes | yes | `copy.md` |
+| Hover, press, focus, nav, tabs | `assets/motion` | yes | yes | yes | yes | `motion.md` |
+| Card loops, a count | `assets/motion`, `assets/ui` | yes | yes | - | - | `motion.md`, `cards.md` |
+| Photographs | `scripts/photos.mjs` | people, customers; a game's art | lead | lead | lead, 12-20 | `photos.md` |
+| Real tool, app and file icons | `scripts/icons.mjs` | yes | yes | tools really used | - | `icons.md` |
+| Feature cards, UI fragments | `assets/ui` | lead (gaming: none) | its app | an app the client runs | - | `cards.md` |
+| Diagram cards (hub, lanes, pulses) | `assets/diagrams` | 0-2, pulsing | 0-2, pulsing | 0-1, still | - | `diagrams.md` |
+| CSS grounds | `assets/backgrounds` | 0-2 dealt | 0-2 dealt | flat tokens | flat tokens | `backgrounds.md` |
+| Shader grounds | `assets/effects` | the one effect | the one effect | - | - | `effects-usage.md` |
+| Creative parts (`fx-*`) | `assets/components` | yes | yes | `fx-photo` plain, `fx-map` still | `fx-map` still | `effects-creative.md` |
+| Objects and prints | `assets/objects` | one, as the effect; a game without art: its render | its render without photographs | its render without photographs | - | `effects-objects.md` |
+| Award-site moments | `assets/moments` | 0-2 | 0-2 | - | - | `moments.md` |
+| Big scenes | `assets/scenes` | 0-1 | 0-1 | - | - | `scenes.md` |
+| Speed and weight | `scripts/perf.mjs` | yes | yes | yes | yes | `perf.md` |
 
-**Rule 4: Materiality, Shadows, and "Anti-Card Overuse"**
-* **DASHBOARD HARDENING:** For `VISUAL_DENSITY > 7`, generic card containers are strictly BANNED. Use logic-grouping via `border-t`, `divide-y`, or purely negative space. Data metrics should breathe without being boxed in unless elevation (z-index) is functionally required.
-* **Execution:** Use cards ONLY when elevation communicates hierarchy. When a shadow is used, tint it to the background hue.
+Read `copy.md`, `system.md`, `layout-v4.md` and `sections.md` in full before the first page.
 
-**Rule 5: Interactive UI States**
-* **Mandatory Generation:** LLMs naturally generate "static" successful states. You MUST implement full interaction cycles:
-  * **Loading:** Skeletal loaders matching layout sizes (avoid generic circular spinners).
-  * **Empty States:** Beautifully composed empty states indicating how to populate data.
-  * **Error States:** Clear, inline error reporting (e.g., forms).
-  * **Tactile Feedback:** On `:active`, use `-translate-y-[1px]` or `scale-[0.98]` to simulate a physical push indicating a press only; show success after the operation actually succeeds.
+## 4. The run
 
-**Rule 6: Data & Form Patterns**
-* **Forms:** Label MUST sit above input. Helper text is optional but should exist in markup. Error text below input. Use a standard `gap-2` for input blocks.
+1. **Read the brief.** Write down the kind (section 1), what is sold, who buys it, the one main
+   action (the transaction: Book a room, Order a cake, Start a free trial; a place with neither:
+   Get directions) and the real material: logo, screens, photographs, prices, address, hours.
 
-## 4. CREATIVE PROACTIVITY (Anti-Slop Implementation)
-To actively combat generic AI designs, systematically implement these high-end coding concepts as your baseline:
-* **"Liquid Glass" Refraction:** When glassmorphism is needed, go beyond `backdrop-blur`. Add a 1px inner border (`border-white/10`) and a subtle inner shadow (`shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]`) to simulate physical edge refraction.
-* **Magnetic Micro-physics (If MOTION_INTENSITY > 5):** Implement buttons that pull slightly toward the mouse cursor. **CRITICAL:** NEVER use React `useState` for magnetic hover or continuous animations. Use EXCLUSIVELY Framer Motion's `useMotionValue` and `useTransform` outside the React render cycle to prevent performance collapse on mobile.
-* **Perpetual Micro-Interactions:** When `MOTION_INTENSITY > 5`, use optional, restrained motion only when it communicates state; do not add continuous animations to normal controls by default. Apply premium Spring Physics (`type: "spring", stiffness: 100, damping: 20`) to all interactive elements—no linear easing.
-* **Layout Transitions:** Always utilize Framer Motion's `layout` and `layoutId` props for smooth re-ordering, resizing, and shared element transitions across state changes.
-* **Staggered Orchestration:** Do not mount lists or grids instantly. Use `staggerChildren` (Framer) or CSS cascade (`animation-delay: calc(var(--index) * 100ms)`) to create sequential waterfall reveals. **CRITICAL:** For `staggerChildren`, the Parent (`variants`) and Children MUST reside in the identical Client Component tree. If data is fetched asynchronously, pass the data as props into a centralized Parent Motion wrapper.
+2. **Write all the copy first,** as `copy.md` says: the h1 names the category
+   and the buyer or the place (a game: its name and genre), one hard fact on the first screen, a noun in every heading, buttons
+   as a verb and an object. Nothing is invented but a coined brand name (searched first, the result
+   kept in `names.json` beside the page) and, on a place, plausible hours and prices.
 
-## 5. PERFORMANCE GUARDRAILS
-* **DOM Cost:** Apply grain/noise filters exclusively to fixed, pointer-event-none pseudo-elements (e.g., `fixed inset-0 z-50 pointer-events-none`) and NEVER to scrolling containers to prevent continuous GPU repaints and mobile performance degradation.
-* **Hardware Acceleration:** Never animate `top`, `left`, `width`, or `height`. Animate exclusively via `transform` and `opacity`.
-* **Z-Index Restraint:** NEVER spam arbitrary `z-50` or `z-10` unprompted. Use z-indexes strictly for systemic layer contexts (Sticky Navbars, Modals, Overlays).
+3. **Plan the page as screens.** Line 1: the kind. Line 2: the deal (step 4). Then one line per
+   section: its id, its one idea, its picture and its kind (object, use, parts, world, slot, diagram, type; three object lines at most), its
+   screens (1 or 2, from its content height, `layout-v4.md` section 2), and on tech which section
+   holds the effect, the scene or a moment. Pick the photographs now (`photos.md`); their count,
+   stand-ins included, sets a place's length (section 2). Then read `cards.md` and the recipe of
+   every id you use in `sections-library.md`.
 
-## 6. TECHNICAL REFERENCE (Dial Definitions)
+4. **Deal, never choose by taste.** Each command keeps a history, so pages differ:
 
-### DESIGN_VARIANCE (Level 1-10)
-* **1-3 (Predictable):** Flexbox `justify-center`, strict 12-column symmetrical grids, equal paddings.
-* **4-7 (Offset):** Use `margin-top: -2rem` overlapping, varied image aspect ratios (e.g., 4:3 next to 16:9), left-aligned headers over center-aligned data.
-* **8-10 (Asymmetric):** Masonry layouts, CSS Grid with fractional units (e.g., `grid-template-columns: 2fr 1fr 1fr`), massive empty zones (`padding-left: 20vw`).
-* **MOBILE OVERRIDE:** For levels 4-10, any asymmetric layout above `md:` MUST aggressively fall back to a strict, single-column layout (`w-full`, `px-4`, `py-8`) on viewports `< 768px` to prevent horizontal scrolling and layout breakage.
+   ```bash
+   node <skill>/assets/layout/deal.mjs --type <page type> --has <photo,ui,object,film> --history .taste-skill/layout-history.json   # the hero; a game adds --kind gaming, hardware --kind tech
+   node <skill>/scripts/start.mjs deal --page <kind> --history .taste-skill/history.json    # three palettes, three pairings; add --axis after a word or editorial hero
+   node <skill>/scripts/start.mjs css --page <kind> --palette <id> --type <id> --radius soft --history .taste-skill/history.json
+   node <skill>/scripts/start.mjs brand --page place --bg "#.." --ink "#.." --accent "#.." [--surface "#.."] [--muted "#.."] --type <id> --radius soft   # a place: its own colours, in place of css
+   node -e "for(const l of process.argv.slice(1)){const o=l.split('|');console.log(o[Math.floor(Math.random()*o.length)])}" <the kind's lists in sections.md>
+   ```
 
-### MOTION_INTENSITY (Level 1-10)
-* **1-3 (Static):** No automatic animations. CSS `:hover` and `:active` states only.
-* **4-7 (Fluid CSS):** List explicit transition properties such as `transform, opacity` with a suitable duration/easing. Use `animation-delay` cascades for load-ins. Focus strictly on `transform` and `opacity`. Use `will-change: transform` sparingly.
-* **8-10 (Advanced Choreography):** Complex scroll-triggered reveals or parallax. Use Framer Motion hooks. NEVER use `window.addEventListener('scroll')`.
+   A product, hardware or a game with no photographs or art deals with `--has object`: always the
+   `product` hero, its render's widest view across the wrap, no box (a game always passes `--has`). A place's hero is printed, never dealt (`--type
+   place`). A dealt part that needs a photograph the page lacks is dealt again (`sections.md` section 2). Take the palette and pairing that suit
+   the client (its own colours: `start.mjs brand`, always on a place, with `sections.md` section 4,
+   Look); never violet: deal again. Keep the `:root` block as printed. Radius: `sharp` for fintech and developer tools, `soft` by default,
+   `round` for consumer apps, square on a place. On tech only: the lit ground (`<html data-ground>`:
+   `sand|sky|sage` through the one-liner), the CSS grounds (`backgrounds.md`), the one effect
+   (`effects-usage.md`) and the moments (`moments.md`). Write every result on plan line 2 and in
+   the comment at the top of `<body>`, and build exactly that (a short page drops what it has no section for: `sections.md` section 4).
 
-### VISUAL_DENSITY (Level 1-10)
-* **1-3 (Art Gallery Mode):** Lots of white space. Huge section gaps. Everything feels very expensive and clean.
-* **4-7 (Daily App Mode):** Normal spacing for standard web apps.
-* **8-10 (Cockpit Mode):** Tiny paddings. No card boxes; just 1px lines to separate data. Everything is packed. **Mandatory:** Use Monospace (`font-mono`) for all numbers.
+5. **Build.** In `starter.html`: set `<html data-type data-radius data-buttons data-motion>` and the
+   three metas, the nav class; copy only the `<section class="hero …">` of
+   `assets/layout/hero-<id>.html` (never its nav, other sections, footer or credit line; every word
+   and picture becomes the client's); move the dealt close and footer out of their `<template>`s
+   and delete the rest. Every section is `main > section` with
+   one `.wrap`, its h2 first, `--h: 1` or `2`. Build each to its recipe with the system's classes
+   and tokens; write page CSS only where a reference says page CSS (inside a visual, `--p-h`,
+   `.wall`, `.rail`, `.device`). Paste UI from `assets/ui/<name>/fragment.html` and rewrite every
+   name, number and logo to the client's (kit icons become `data-icon`, `cards.md`); a diagram card is `data-diagram="<preset>"`
+   with the client's labels; run `icons.mjs scan index.html --out assets/icons --colour` last, so every icon
+   the page names is a local file. Mount an effect, object, moment or scene exactly as its
+   reference says, never from your own script. Credits: the one footer line from
+   `photos.mjs credits`, once the markup uses the photographs (it reads the page).
 
-## 7. AI TELLS (Forbidden Patterns)
-To guarantee a premium, non-generic output, you MUST strictly avoid these common AI design signatures unless explicitly requested:
+6. **Check and look.** Only the skill's scripts, each running one headless Chrome with WebGL on the
+   CPU, closed by its own PID, one at a time; never a windowed browser or a browser tool.
+   Each serves the page file itself over http on 127.0.0.1 (never `file://`), so no server is needed;
+   for a built page whose links start at the site root (`/_astro/page.css`), pass `--root` with the build folder (`dist`). Then:
 
-### Visual & CSS
-* **NO Neon/Outer Glows:** Do not use default `box-shadow` glows or auto-glows. Use inner borders or subtle tinted shadows.
-* **NO Pure Black:** Never use `#000000`. Use Off-Black, Zinc-950, or Charcoal.
-* **NO Oversaturated Accents:** Desaturate accents to blend elegantly with neutrals.
-* **NO Excessive Gradient Text:** Do not use text-fill gradients for large headers.
-* **NO Custom Mouse Cursors:** They are outdated and ruin performance/accessibility.
+   ```bash
+   node <skill>/scripts/consistency.mjs index.html --widths 1440,1024,820,768,390 --rhythm-widths 1440,820,768,390 --profile <dir> --page <kind> --category "<what is sold>" --primary "<main action>"
+   node <skill>/assets/layout/check.mjs --url index.html --profile <dir> --sizes 1440x900,1024x768,820x1180,768x1024,390x844 --shots shots/layout
+   node <skill>/scripts/shoot.mjs --url index.html --w 1440 --out shots/1440.png --profile <dir>
+   node <skill>/scripts/perf.mjs index.html --profile <dir>
+   ```
 
-### Typography
-* **NO Inter Font:** Banned. Use `Geist`, `Outfit`, `Cabinet Grotesk`, or `Satoshi`.
-* **NO Oversized H1s:** The first heading should not scream. Control hierarchy with weight and color, not just massive scale.
-* **Serif Constraints:** Use Serif fonts ONLY for creative/editorial designs. **NEVER** use Serif on clean Dashboards.
+   Shoot 1024, 820x1180, 768x1024 and 390 as well. Every `check.mjs` finding fails the page (no `--no-stress`).
+   Fix every FAIL (one you judge false goes in the report with its reason), shoot again, and read
+   every screenshot against the checklist.
 
-### Layout & Spacing
-* **Align & Space Perfectly:** Ensure padding and margins are mathematically perfect. Avoid floating elements with awkward gaps.
-* **NO 3-Column Card Layouts:** The generic "3 equal cards horizontally" feature row is BANNED. Use a 2-column Zig-Zag, asymmetric grid, or horizontal scrolling approach instead.
+7. **Report:** the kind, the deal (palette, pairing, hero, grounds, effect, moments, scene); the
+   checker, layout and perf results; what you could not check; every assumed price, hour or
+   address and the coined name's search; the photographs and art the client must supply, every
+   stand-in frame among them; every client slot, its file and its stand-in.
 
-### Content & Data (The "Jane Doe" Effect)
-* **NO Generic Names:** "John Doe", "Sarah Chan", or "Jack Su" are banned. Use highly creative, realistic-sounding names.
-* **NO Generic Avatars:** DO NOT use standard SVG "egg" or Lucide user icons for avatars. Use creative, believable photo placeholders or specific styling.
-* **NO Fake Numbers:** Avoid predictable outputs like `99.99%`, `50%`, or basic phone numbers (`1234567`). Use clearly labeled synthetic data or verified user-provided values; never invent realistic phone numbers or performance claims.
-* **NO Startup Slop Names:** "Acme", "Nexus", "SmartFlow". Invent premium, contextual brand names.
-* **NO Filler Words:** Avoid AI copywriting clichés like "Elevate", "Seamless", "Unleash", or "Next-Gen". Use concrete verbs.
+## 5. Checklist
 
-### External Resources & Components
-* **NO Broken Unsplash Links:** Do not use Unsplash. Use absolute, reliable placeholders like `https://picsum.photos/seed/{random_string}/800/600` or SVG UI Avatars.
-* **shadcn/ui Customization:** You may use `shadcn/ui`, but NEVER in its generic default state. You MUST customize the radii, colors, and shadows to match the high-end project aesthetic.
-* **Production-Ready Cleanliness:** Code must be extremely clean, visually striking, memorable, and meticulously refined in every detail.
+Each line names its checks: `consistency.mjs` ids in brackets, `check.mjs` findings in braces,
+`perf.mjs` rows. The last line is for your eyes.
 
-## 8. THE CREATIVE ARSENAL (High-End Inspiration)
-Do not default to generic UI. Pull from this library of advanced concepts to ensure the output is visually striking and memorable. When appropriate, leverage **GSAP (ScrollTrigger/Parallax)** for complex scrolltelling or **ThreeJS/WebGL** for 3D/Canvas animations, rather than basic CSS motion. **CRITICAL:** Never mix GSAP/ThreeJS with Framer Motion in the same component tree. Default to Framer Motion for UI/Bento interactions. Use GSAP/ThreeJS EXCLUSIVELY for isolated full-page scrolltelling or canvas backgrounds, wrapped in strict useEffect cleanup blocks.
+- **First screen:** says what is sold, for whom or where, with one hard fact [copy-headline,
+  copy-fact]; the hero fills it alone at every width, its main button inside it [hero-screen,
+  hero-fill, fold-action, fold-cut] {hero-fold}.
+- **One section per screen:** every section 1 or 2 screens, its h2 first and top-aligned, no
+  neighbour's heading or picture in its tile, nothing sparse [section-height, one-section,
+  one-heading, section-air, one-screen, section-gaps] {screen-short, screen-height, sparse,
+  neighbour, neighbour-ground}.
+- **Equal edges:** every block on the `.wrap` lines or the grid's columns, nothing out to one side,
+  no sideways scroll [container-edges, row-lines, split-pair, off-grid, right-edge, col-edge,
+  spill, off-viewport, stagger, top-stagger] {edge-left, edge-right, spill, bleed-one-side,
+  one-sided, lines}.
+- **Every visual draws** at 1440, 1024, 768 and 390; a refused effect shows its still fallback
+  [visual-empty, empty-visual, gl-fallback, shader-lint, no-visual, photo-weight].
+- **No caption** explains, apologises for or labels a picture; credits in one footer line
+  [visual-caption, caption, credit-wall, photo-credit]; no placeholder, sample note or printed
+  `.example` address [placeholder, sample-label].
+- **The right things for the kind:** no effect ground, print, scene or moment outside tech
+  (WebGL only for a product render) [effect-kind, effects-fit, photo-print]; the subject itself
+  shows: the product big, whole in three sections at most, a new picture each [product-shown,
+  same-object, photo-repeat]; each asset the brief names in its slot; a game's name and its world as key art,
+  the diff of a code-review tool, software's `app-frame`;
+  real photographs where they fit, none twice [photo-set, photo-repeat, photo-upscale]; real icons in their own
+  colours; flat grounds on other [grounds]; a place deals two different compositions and one type
+  moment.
+- **Motion:** every button, link, linked card and linked photograph visibly answers the pointer,
+  nothing tilts [motion-layer, hover, hover-move, tilt]; card loops cycle in 2.5-4 s [loop-cycle]; nothing moves because the page scrolled except a dealt moment or the big
+  scene inside its own section on tech [scroll-linked, scroll-reveal, pinned: expected only there]; anything
+  moving past 5 s has a pause button [loop-pause]; under reduced motion everything rests and nothing
+  stays hidden [reduced-motion, hidden-content]; at most four live contexts [webgl].
+- **Contacts** as rule 9 [street-number, postcode, coordinates, company-number, phone-number].
+- **One system:** one button pair, one card style, one radius scale, one link look [button-styles,
+  button-shape, card-family, card-layout, link-styles]; two boxes deep at most [nesting]; one
+  heading scale, its faces loaded [heading-scale, font-load]; text contrast [text-contrast,
+  contrast].
+- **Copy and links:** headings name things, buttons a verb and an object, at most two hero actions
+  [copy-headings, copy-buttons, copy-actions, action-count]; one fact, one wording [fact-agree];
+  every link lands, forms send [links, forms].
+- **Fast:** no FAIL row in `perf.mjs` (image weight, contexts, layout shift).
+- **820, 768 and 390:** sections on their screens [section-height], the first screen ending whole
+  or on a clear bleed [fold-card] (`layout-v4.md`); splits stack text first, no row half empty; one column at 390, buttons full
+  width, a full-screen menu; the place action bar.
+- **Your eyes:** beside the figma.com and x.ai frames it reads as a professional company site;
+  nothing tilted, staggered, cut or overlapping; the hero is the work, not a mood.
 
-### The Standard Hero Paradigm
-* Stop doing centered text over a dark image. Try asymmetric Hero sections: Text cleanly aligned to the left or right. The background should feature a high-quality, relevant image with a subtle stylistic fade (darkening or lightening gracefully into the background color depending on if it is Light or Dark mode).
+## 6. Never
 
-### Navigation & Menüs
-* **Mac OS Dock Magnification:** Nav-bar at the edge; icons scale fluidly on hover.
-* **Magnetic Button:** Buttons that physically pull toward the cursor.
-* **Gooey Menu:** Sub-items detach from the main button like a viscous liquid.
-* **Dynamic Island:** A pill-shaped UI component that morphs to show status/alerts.
-* **Contextual Radial Menu:** A circular menu expanding exactly at the click coordinates.
-* **Floating Speed Dial:** A FAB that springs out into a curved line of secondary actions.
-* **Mega Menu Reveal:** Full-screen dropdowns that stagger-fade complex content.
+- A card, row or tile that animates on scroll; a reveal, fade-in or parallax; random blinking.
+- Stock photographs passed off as the client's product, people or place; a product page that
+  never shows the product.
+- A drawn look-alike of a real logo; invented reviews, quotes, customers or figures.
+- Violet or lavender in the page's own design: accent, ground, gradient, effect colour or tint (a
+  real third-party logo keeps its own colours, `icons.md`).
+- Copying a reference site's code, copy, pictures or signature effect.
+- Deleting or editing the kit's own files (`assets/`, `scripts/`) to clear a check: a check that
+  flags a kit file is reported, and the page is checked again after any change.
 
-### Layout & Grids
-* **Bento Grid:** Asymmetric, tile-based grouping (e.g., Apple Control Center).
-* **Masonry Layout:** Staggered grid without fixed row heights (e.g., Pinterest).
-* **Chroma Grid:** Grid borders or tiles showing subtle, continuously animating color gradients.
-* **Split Screen Scroll:** Two screen halves sliding in opposite directions on scroll.
-* **Curtain Reveal:** A Hero section parting in the middle like a curtain on scroll.
+## References
 
-### Cards & Containers
-* **Parallax Tilt Card:** A 3D-tilting card tracking the mouse coordinates.
-* **Spotlight Border Card:** Card borders that illuminate dynamically under the cursor.
-* **Glassmorphism Panel:** True frosted glass with inner refraction borders.
-* **Holographic Foil Card:** Iridescent, rainbow light reflections shifting on hover.
-* **Tinder Swipe Stack:** A physical stack of cards the user can swipe away.
-* **Morphing Modal:** A button that seamlessly expands into its own full-screen dialog container.
-
-### Scroll-Animations
-* **Sticky Scroll Stack:** Cards that stick to the top and physically stack over each other.
-* **Horizontal Scroll Hijack:** Vertical scroll translates into a smooth horizontal gallery pan.
-* **Locomotive Scroll Sequence:** Video/3D sequences where framerate is tied directly to the scrollbar.
-* **Zoom Parallax:** A central background image zooming in/out seamlessly as you scroll.
-* **Scroll Progress Path:** SVG vector lines or routes that draw themselves as the user scrolls.
-* **Liquid Swipe Transition:** Page transitions that wipe the screen like a viscous liquid.
-
-### Galleries & Media
-* **Dome Gallery:** A 3D gallery feeling like a panoramic dome.
-* **Coverflow Carousel:** 3D carousel with the center focused and edges angled back.
-* **Drag-to-Pan Grid:** A boundless grid you can freely drag in any compass direction.
-* **Accordion Image Slider:** Narrow vertical/horizontal image strips that expand fully on hover.
-* **Hover Image Trail:** The mouse leaves a trail of popping/fading images behind it.
-* **Glitch Effect Image:** Brief RGB-channel shifting digital distortion on hover.
-
-### Typography & Text
-* **Kinetic Marquee:** Endless text bands that reverse direction or speed up on scroll.
-* **Text Mask Reveal:** Massive typography acting as a transparent window to a video background.
-* **Text Scramble Effect:** Matrix-style character decoding on load or hover.
-* **Circular Text Path:** Text curved along a spinning circular path.
-* **Gradient Stroke Animation:** Outlined text with a gradient continuously running along the stroke.
-* **Kinetic Typography Grid:** A grid of letters dodging or rotating away from the cursor.
-
-### Micro-Interactions & Effects
-* **Particle Explosion Button:** CTAs that shatter into particles upon success.
-* **Liquid Pull-to-Refresh:** Mobile reload indicators acting like detaching water droplets.
-* **Skeleton Shimmer:** Shifting light reflections moving across placeholder boxes.
-* **Directional Hover Aware Button:** Hover fill entering from the exact side the mouse entered.
-* **Ripple Click Effect:** Visual waves rippling precisely from the click coordinates.
-* **Animated SVG Line Drawing:** Vectors that draw their own contours in real-time.
-* **Mesh Gradient Background:** Organic, lava-lamp-like animated color blobs.
-* **Lens Blur Depth:** Dynamic focus blurring background UI layers to highlight a foreground action.
-
-## 9. THE "MOTION-ENGINE" BENTO PARADIGM
-When the product and user explicitly call for this visual direction, consider the following optional "Bento 2.0" architecture and motion philosophy. This goes beyond static cards and enforces a "Vercel-core meets Dribbble-clean" aesthetic heavily reliant on perpetual physics.
-
-### A. Core Design Philosophy
-* **Aesthetic:** High-end, minimal, and functional.
-* **Palette:** Background in `#f9fafb`. Cards are pure white (`#ffffff`) with a 1px border of `border-slate-200/50`.
-* **Surfaces:** Use `rounded-[2.5rem]` for all major containers. Apply a "diffusion shadow" (a very light, wide-spreading shadow, e.g., `shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)]`) to create depth without clutter.
-* **Typography:** Strict `Geist`, `Satoshi`, or `Cabinet Grotesk` font stack. Use subtle tracking (`tracking-tight`) for headers.
-* **Labels:** Titles and descriptions must be placed **outside and below** the cards to maintain a clean, gallery-style presentation.
-* **Pixel-Perfection:** Use generous `p-8` or `p-10` padding inside cards.
-
-### B. The Animation Engine Specs (Perpetual Motion)
-Cards do not require motion. For an explicitly requested animation demo, consider: Use the following Framer Motion principles:
-* **Spring Physics:** No linear easing. Use `type: "spring", stiffness: 100, damping: 20` for a premium, weighty feel.
-* **Layout Transitions:** Heavily utilize the `layout` and `layoutId` props to ensure smooth re-ordering, resizing, and shared element state transitions.
-* **Infinite Loops:** Infinite loops are optional decorative demos only; stop under reduced-motion, provide pause where required and never simulate real operational status.
-* **Performance:** Wrap dynamic lists in `<AnimatePresence>` and optimize for 60fps. **PERFORMANCE CRITICAL:** Any perpetual motion or infinite loop MUST be memoized (React.memo) and completely isolated in its own microscopic Client Component. Never trigger re-renders in the parent layout.
-
-### C. The 5-Card Archetypes (Micro-Animation Specs)
-Implement these specific micro-animations when constructing Bento grids (e.g., Row 1: 3 cols | Row 2: 2 cols split 70/30):
-1. **The Intelligent List:** A vertical stack of items with an infinite auto-sorting loop. Items swap positions using `layoutId`, clearly labeled as a demo, not representing actual AI decisions or reordering a user’s live tasks.
-2. **The Command Input:** A search/AI bar with a multi-step Typewriter Effect. It cycles through complex prompts, including a blinking cursor and a "processing" state with a shimmering loading gradient.
-3. **The Live Status:** A scheduling interface with "breathing" status indicators. Include a pop-up notification badge that emerges with an "Overshoot" spring effect, stays for 3 seconds, and vanishes.
-4. **The Wide Data Stream:** A horizontal "Infinite Carousel" of data cards or metrics. Ensure the loop is seamless (using `x: ["0%", "-100%"]`) with a speed that feels effortless.
-5. **The Contextual UI (Focus Mode):** A document view that animates a staggered highlight of a text block, followed by a "Float-in" of a floating action toolbar with micro-icons.
-
-## 10. FINAL PRE-FLIGHT CHECK
-Evaluate your code against this matrix before outputting. This is the **last** filter you apply to your logic.
-- [ ] Is global state used appropriately to avoid deep prop-drilling rather than arbitrarily?
-- [ ] Is mobile layout collapse (`w-full`, `px-4`, `max-w-7xl mx-auto`) guaranteed for high-variance designs?
-- [ ] Do full-height sections safely use `min-h-[100dvh]` with a viewport strategy verified for the intended keyboard/browser behavior?
-- [ ] Do `useEffect` animations contain strict cleanup functions?
-- [ ] Are empty, loading, and error states provided?
-- [ ] Are cards omitted in favor of spacing where possible?
-- [ ] Did you strictly isolate CPU-heavy perpetual animations in their own Client Components?
-
-## Accessibility, truth and performance
-
-These taste defaults yield to the user’s brand, existing architecture and accessibility needs. Respect prefers-reduced-motion, provide pause/stop for nonessential ongoing animation, keep keyboard focus stable and avoid scroll hijacking as a required navigation path. Hover/magnetic/drag interactions need equivalent keyboard/touch controls; dialogs need semantics, focus management and escape/close behavior. Maintain sufficient contrast, visible focus, target sizes, associated labels/error descriptions and live-region announcements without announcing decorative loops. Treat finance/status/AI activity as real only with evidence; label mock data and use licensed/local imagery rather than depending on remote placeholder uptime/privacy. React.memo alone does not stop animation work, guarantee isolation or deliver 60fps: measure CPU/GPU, reduced motion, offscreen behavior and cleanup on target devices. Server rendering, Tailwind syntax and motion APIs require pinned-version checks; no styling recipe guarantees responsive or production readiness.
+All in `references/`; section 3 names the one each asset needs.

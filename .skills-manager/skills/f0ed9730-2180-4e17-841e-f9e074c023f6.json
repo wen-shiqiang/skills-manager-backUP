@@ -7,8 +7,8 @@
   "tags": [],
   "source": {
     "type": "git",
-    "ref": "https://github.com/helderberto/agent-skills/tree/main/skills/diagnose",
-    "subpath": "skills/diagnose",
+    "ref": "https://github.com/helderberto/agent-skills",
+    "subpath": "skills/debug",
     "branch": "main"
   }
 }
