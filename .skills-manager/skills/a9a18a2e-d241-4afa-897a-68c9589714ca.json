@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "a9a18a2e-d241-4afa-897a-68c9589714ca",
+  "path": "zoom-out",
+  "path_key": "zoom-out",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "skillssh",
+    "ref": "jpcaparas/skills/zoom-out",
+    "subpath": "skills\\engineering\\zoom-out",
+    "branch": null
+  }
+}
