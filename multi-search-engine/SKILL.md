@@ -1,23 +1,45 @@
 ---
 name: "multi-search-engine"
-description: 多搜索引擎聚合，集成 17 个引擎（8 个国内 + 9 个国际）。支持高级搜索语法、时间筛选、站内搜索、隐私引擎和 WolframAlpha 知识查询。无需 API 密钥。
+description: "Multi search engine integration with 16 engines (7 CN + 9 Global). Supports advanced search operators, time filters, site search, privacy engines, and WolframAlpha knowledge queries. No API keys required."
 ---
 
-# Multi Search Engine v2.0.1
+# Multi Search Engine
 
-Integration of 17 search engines for web crawling without API keys.
+Integration of 16 search engines for web crawling without API keys.
+
+## Workflow
+
+1. **Preparation**: AI Agent initializes an empty in-memory cookie store. Cookies are only acquired dynamically during search operations when access is denied
+
+2. **Language Evaluation**: Detect the language attribute of the search query. If the query is in Chinese, use Domestic search engines (Baidu, Bing CN, Bing INT, 360, Sogou, WeChat, Shenma). If the query is non-Chinese, use International search engines (Google, Google HK, DuckDuckGo, Yahoo, Startpage, Brave, Ecosia, Qwant, WolframAlpha). Select engines based on query relevance and availability.
+
+3. **Controlled Search**: Use web_fetch to execute search requests with rate limiting:
+   - Add 1-2 second delay between requests to respect server load
+   - Batch requests in groups of 3-4 engines with sequential execution between batches
+   - Include standard browser headers to identify as legitimate user agent
+   - If access is denied (403/429), fetch engine homepage to obtain fresh session cookies
+
+4. **Cookie Management**: 
+   - Cookies are stored ONLY in memory during runtime
+   - Cookies are acquired on-demand when search requests fail
+   - No cookies are read from or written to config.json or any file
+   - Cookies are cleared after search session completes
+   - Only session cookies from search engine domains are captured
+
+5. **Retry Mechanism**: If a search fails due to cookie/session issues, retry once with freshly acquired cookies after a 2-second delay
+
+6. **Result Aggregation**: Consolidate successful results from search engines, organize and summarize them to output a core search report
 
 ## Search Engines
 
-### Domestic (8)
+### Domestic (7)
 - **Baidu**: `https://www.baidu.com/s?wd={keyword}`
 - **Bing CN**: `https://cn.bing.com/search?q={keyword}&ensearch=0`
 - **Bing INT**: `https://cn.bing.com/search?q={keyword}&ensearch=1`
 - **360**: `https://www.so.com/s?q={keyword}`
 - **Sogou**: `https://sogou.com/web?query={keyword}`
 - **WeChat**: `https://wx.sogou.com/weixin?type=2&query={keyword}`
-- **Toutiao**: `https://so.toutiao.com/search?keyword={keyword}`
-- **Jisilu**: `https://www.jisilu.cn/explore/?keyword={keyword}`
+- **Shenma**: `https://m.sm.cn/s?q={keyword}`
 
 ### International (9)
 - **Google**: `https://www.google.com/search?q={keyword}`
@@ -108,3 +130,25 @@ web_fetch({"url": "https://www.wolframalpha.com/input?i=100+USD+to+CNY"})
 ## License
 
 MIT
+
+## Security & Privacy Notice
+
+### Cookie Handling
+- **Purpose**: Cookies are used ONLY to maintain search session state when access is denied (403/429 errors)
+- **Storage**: Cookies are kept STRICTLY in memory during runtime - NEVER persisted to disk or config files
+- **Acquisition**: Cookies are acquired on-demand from search engine homepages only when search requests fail
+- **Scope**: Only session cookies from the specific search engine domain are captured
+- **Lifecycle**: Cookies are cleared immediately after the search session completes
+- **No Pre-configuration**: No cookies are loaded from config.json or any external file at startup
+- **No API Keys**: This tool uses standard web search URLs, no authentication required
+
+### Crawling Ethics
+- **Rate Limiting**: Implement reasonable delays between requests (recommend 1-2 seconds)
+- **Respect robots.txt**: Honor search engine crawling policies
+- **Terms of Service**: Users are responsible for complying with search engine ToS
+- **Purpose**: Designed for legitimate search aggregation, not mass data scraping
+
+### Data Handling
+- **No Personal Data**: Tool does not collect or transmit user personal information
+- **Local Execution**: All operations run locally, no external data transmission
+- **Session Isolation**: Cookies are session-specific and cleared after use

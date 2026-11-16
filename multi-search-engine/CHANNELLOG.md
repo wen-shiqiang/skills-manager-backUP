@@ -4,13 +4,13 @@
 
 - **名称**: multi-search-engine
 - **版本**: v2.0.1
-- **描述**: 集成17个搜索引擎（8国内+9国际），支持高级搜索语法
+- **描述**: 集成16个搜索引擎（7国内+9国际），支持高级搜索语法
 - **发布时间**: 2026-02-06
 
 ## 搜索引擎
 
-**国内（8个）**: 百度、必应、360、搜狗、微信、头条、集思录
-**国际（9个）**: Google、DuckDuckGo、Yahoo、Brave、Startpage、Ecosia、Qwant、WolframAlpha
+**国内（7个）**: 百度、必应CN、必应INT、360、搜狗、微信、神马
+**国际（9个）**: Google、Google HK、DuckDuckGo、Yahoo、Startpage、Brave、Ecosia、Qwant、WolframAlpha
 
 ## 核心功能
 

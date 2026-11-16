@@ -361,291 +361,38 @@ web_fetch({"url": "https://www.startpage.com/sp/search?query=machine+learning&la
 
 ---
 
-## 🌍 综合搜索策略
+## 🌐 其他国际搜索引擎
 
-### 6.1 按搜索目标选择引擎
-
-| 搜索目标 | 首选引擎 | 备选引擎 | 原因 |
-|---------|---------|---------|------|
-| **学术研究** | Google Scholar | Google, Brave | 学术资源索引 |
-| **编程开发** | Google | GitHub(DuckDuckGo bang) | 技术文档全面 |
-| **隐私敏感** | DuckDuckGo | Startpage, Brave | 不追踪用户 |
-| **实时新闻** | Brave News | Google News | 独立新闻索引 |
-| **知识计算** | WolframAlpha | Google | 结构化数据 |
-| **中文内容** | Google HK | Bing | 中文优化好 |
-| **欧洲视角** | Qwant | Startpage | 欧盟合规 |
-| **环保支持** | Ecosia | DuckDuckGo | 搜索植树 |
-| **无过滤** | Brave | Startpage | 无偏见结果 |
-
-### 6.2 多引擎交叉验证
+### Yahoo
 
 ```javascript
-// 策略：同一关键词多引擎搜索，对比结果
-const keyword = "climate change 2024";
-
-// 获取不同视角
-const searches = [
-  { engine: "Google", url: `https://www.google.com/search?q=${keyword}&tbs=qdr:m` },
-  { engine: "Brave", url: `https://search.brave.com/search?q=${keyword}&tf=pm` },
-  { engine: "DuckDuckGo", url: `https://duckduckgo.com/html/?q=${keyword}` },
-  { engine: "Ecosia", url: `https://www.ecosia.org/search?q=${keyword}` }
-];
-
-// 分析不同引擎的结果差异
+web_fetch({"url": "https://search.yahoo.com/search?p={keyword}"})
 ```
 
-### 6.3 时间敏感搜索策略
-
-| 时效性要求 | 引擎选择 | 参数设置 |
-|-----------|---------|---------|
-| **实时（小时级）** | Google News, Brave News | `tbs=qdr:h`, `tf=pw` |
-| **近期（天级）** | Google, Brave | `tbs=qdr:d`, `time=day` |
-| **本周** | 所有引擎 | `tbs=qdr:w`, `tf=pw` |
-| **本月** | 所有引擎 | `tbs=qdr:m`, `tf=pm` |
-| **历史** | Google Scholar | 学术档案 |
-
-### 6.4 专业领域深度搜索
-
-#### 技术开发
+### Ecosia（环保搜索）
 
 ```javascript
-// GitHub 项目搜索
-web_fetch({"url": "https://duckduckgo.com/html/?q=!gh+tensorflow+stars:%3E1000"})
-
-// Stack Overflow 问题
-web_fetch({"url": "https://duckduckgo.com/html/?q=!so+python+memory+leak"})
-
-// MDN 文档
-web_fetch({"url": "https://duckduckgo.com/html/?q=!mdn+javascript+async+await"})
-
-// PyPI 包
-web_fetch({"url": "https://duckduckgo.com/html/?q=!pypi+requests"})
-
-// npm 包
-web_fetch({"url": "https://duckduckgo.com/html/?q=!npm+express"})
+web_fetch({"url": "https://www.ecosia.org/search?q={keyword}"})
 ```
 
-#### 学术研究
+### Qwant（欧盟隐私搜索）
 
 ```javascript
-// Google Scholar 论文
-web_fetch({"url": "https://scholar.google.com/scholar?q=deep+learning+2024"})
-
-// 搜索PDF论文
-web_fetch({"url": "https://www.google.com/search?q=machine+learning+filetype:pdf+2024"})
-
-// arXiv 论文
-web_fetch({"url": "https://duckduckgo.com/html/?q=site:arxiv.org+quantum+computing"})
-```
-
-#### 金融投资
-
-```javascript
-// 股票实时数据
-web_fetch({"url": "https://www.wolframalpha.com/input?i=AAPL+stock"})
-
-// 汇率转换
-web_fetch({"url": "https://www.wolframalpha.com/input?i=EUR+to+USD"})
-
-// 搜索财报PDF
-web_fetch({"url": "https://www.google.com/search?q=Apple+Q4+2024+earnings+filetype:pdf"})
-```
-
-#### 新闻时事
-
-```javascript
-// Google新闻
-web_fetch({"url": "https://www.google.com/search?q=breaking+news&tbm=nws&tbs=qdr:h"})
-
-// Brave新闻
-web_fetch({"url": "https://search.brave.com/search?q=world+news&source=news"})
-
-// DuckDuckGo新闻
-web_fetch({"url": "https://duckduckgo.com/html/?q=tech+news&ia=news"})
+web_fetch({"url": "https://www.qwant.com/?q={keyword}"})
 ```
 
 ---
 
-## 🛠️ 高级搜索技巧汇总
+## 🌍 国际搜索策略
 
-### URL编码工具函数
+### 按搜索目标选择引擎
 
-```javascript
-// URL编码关键词
-function encodeKeyword(keyword) {
-  return encodeURIComponent(keyword);
-}
+| 搜索目标 | 首选引擎 | 原因 |
+|---------|---------|------|
+| **学术研究** | Google Scholar | 学术资源索引最全 |
+| **编程开发** | Google + DuckDuckGo Bangs | 技术文档全面 |
+| **隐私敏感** | DuckDuckGo / Brave | 不追踪用户 |
+| **实时新闻** | Brave News | 独立新闻索引 |
+| **知识计算** | WolframAlpha | 结构化数据计算 |
+| **隐私+Google结果** | Startpage | Google结果+隐私保护 |
 
-// 示例
-const keyword = "machine learning";
-const encoded = encodeKeyword(keyword); // "machine%20learning"
-```
-
-### 批量搜索模板
-
-```javascript
-// 多引擎批量搜索函数
-function generateSearchUrls(keyword) {
-  const encoded = encodeURIComponent(keyword);
-  return {
-    google: `https://www.google.com/search?q=${encoded}`,
-    google_hk: `https://www.google.com.hk/search?q=${encoded}`,
-    duckduckgo: `https://duckduckgo.com/html/?q=${encoded}`,
-    brave: `https://search.brave.com/search?q=${encoded}`,
-    startpage: `https://www.startpage.com/sp/search?query=${encoded}`,
-    bing_intl: `https://cn.bing.com/search?q=${encoded}&ensearch=1`,
-    yahoo: `https://search.yahoo.com/search?p=${encoded}`,
-    ecosia: `https://www.ecosia.org/search?q=${encoded}`,
-    qwant: `https://www.qwant.com/?q=${encoded}`
-  };
-}
-
-// 使用示例
-const urls = generateSearchUrls("artificial intelligence");
-```
-
-### 时间筛选快捷函数
-
-```javascript
-// Google时间筛选URL生成
-function googleTimeSearch(keyword, period) {
-  const periods = {
-    hour: 'qdr:h',
-    day: 'qdr:d',
-    week: 'qdr:w',
-    month: 'qdr:m',
-    year: 'qdr:y'
-  };
-  return `https://www.google.com/search?q=${encodeURIComponent(keyword)}&tbs=${periods[period]}`;
-}
-
-// 使用示例
-const recentNews = googleTimeSearch("AI breakthrough", "week");
-```
-
----
-
-## 📝 完整搜索示例集
-
-```javascript
-// ==================== 技术开发 ====================
-
-// 1. 搜索GitHub上高Star的Python项目
-web_fetch({"url": "https://www.google.com/search?q=site:github.com+python+stars:%3E1000"})
-
-// 2. Stack Overflow最佳答案
-web_fetch({"url": "https://duckduckgo.com/html/?q=!so+best+way+to+learn+python"})
-
-// 3. MDN文档查询
-web_fetch({"url": "https://duckduckgo.com/html/?q=!mdn+promises"})
-
-// 4. 搜索npm包
-web_fetch({"url": "https://duckduckgo.com/html/?q=!npm+axios"})
-
-// ==================== 学术研究 ====================
-
-// 5. Google Scholar论文
-web_fetch({"url": "https://scholar.google.com/scholar?q=transformer+architecture"})
-
-// 6. 搜索PDF论文
-web_fetch({"url": "https://www.google.com/search?q=attention+is+all+you+need+filetype:pdf"})
-
-// 7. arXiv最新论文
-web_fetch({"url": "https://duckduckgo.com/html/?q=site:arxiv.org+abs+quantum"})
-
-// ==================== 新闻时事 ====================
-
-// 8. Google最新新闻（过去1小时）
-web_fetch({"url": "https://www.google.com/search?q=breaking+news&tbs=qdr:h&tbm=nws"})
-
-// 9. Brave本周科技新闻
-web_fetch({"url": "https://search.brave.com/search?q=technology&tf=pw&source=news"})
-
-// 10. DuckDuckGo新闻
-web_fetch({"url": "https://duckduckgo.com/html/?q=world+news&ia=news"})
-
-// ==================== 金融投资 ====================
-
-// 11. 股票实时数据
-web_fetch({"url": "https://www.wolframalpha.com/input?i=Tesla+stock"})
-
-// 12. 货币汇率
-web_fetch({"url": "https://www.wolframalpha.com/input?i=1+BTC+to+USD"})
-
-// 13. 公司财报PDF
-web_fetch({"url": "https://www.google.com/search?q=Microsoft+annual+report+2024+filetype:pdf"})
-
-// ==================== 知识计算 ====================
-
-// 14. 数学计算
-web_fetch({"url": "https://www.wolframalpha.com/input?i=derivative+of+x%5E3+sin%28x%29"})
-
-// 15. 单位换算
-web_fetch({"url": "https://www.wolframalpha.com/input?i=convert+100+miles+to+kilometers"})
-
-// 16. 营养信息
-web_fetch({"url": "https://www.wolframalpha.com/input?i=protein+in+chicken+breast"})
-
-// ==================== 隐私保护搜索 ====================
-
-// 17. DuckDuckGo隐私搜索
-web_fetch({"url": "https://duckduckgo.com/html/?q=privacy+tools"})
-
-// 18. Startpage匿名搜索
-web_fetch({"url": "https://www.startpage.com/sp/search?query=secure+messaging"})
-
-// 19. Brave无追踪搜索
-web_fetch({"url": "https://search.brave.com/search?q=encryption+software"})
-
-// ==================== 高级组合搜索 ====================
-
-// 20. Google多条件精确搜索
-web_fetch({"url": "https://www.google.com/search?q=%22machine+learning%22+site:github.com+filetype:pdf+2024"})
-
-// 21. 排除特定站点的搜索
-web_fetch({"url": "https://www.google.com/search?q=python+tutorial+-wikipedia+-w3schools"})
-
-// 22. 价格范围搜索
-web_fetch({"url": "https://www.google.com/search?q=laptop+%24800..%241200+best+review"})
-
-// 23. 使用Bangs快速跳转
-web_fetch({"url": "https://duckduckgo.com/html/?q=!g+site:medium.com+python"})
-
-// 24. 图片搜索（Google）
-web_fetch({"url": "https://www.google.com/search?q=beautiful+landscape&tbm=isch"})
-
-// 25. 学术引用搜索
-web_fetch({"url": "https://scholar.google.com/scholar?q=author:%22Geoffrey+Hinton%22"})
-```
-
----
-
-## 🔐 隐私保护最佳实践
-
-### 搜索引擎隐私级别
-
-| 引擎 | 追踪级别 | 数据保留 | 加密 | 推荐场景 |
-|------|---------|---------|------|---------|
-| **DuckDuckGo** | 无追踪 | 无保留 | 是 | 日常隐私搜索 |
-| **Startpage** | 无追踪 | 无保留 | 是 | 需要Google结果但保护隐私 |
-| **Brave** | 无追踪 | 无保留 | 是 | 独立索引，无偏见 |
-| **Qwant** | 无追踪 | 无保留 | 是 | 欧盟合规要求 |
-| **Google** | 高度追踪 | 长期保留 | 是 | 需要个性化结果 |
-| **Bing** | 中度追踪 | 长期保留 | 是 | 微软服务集成 |
-
-### 隐私搜索建议
-
-1. **日常使用**: DuckDuckGo 或 Brave
-2. **需要Google结果但保护隐私**: Startpage
-3. **学术研究**: Google Scholar（学术用途追踪较少）
-4. **敏感查询**: 使用Tor浏览器 + DuckDuckGo onion服务
-5. **跨设备同步**: 避免登录搜索引擎账户
-
----
-
-## 📚 参考资料
-
-- [Google搜索操作符完整列表](https://support.google.com/websearch/answer/...)
-- [DuckDuckGo Bangs完整列表](https://duckduckgo.com/bang)
-- [Brave Search文档](https://search.brave.com/help/...)
-- [WolframAlpha示例](https://www.wolframalpha.com/examples/)
