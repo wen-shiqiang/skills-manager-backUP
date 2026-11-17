@@ -3,5 +3,11 @@
   "scenario_id": "31f5d0e3-de3d-48d9-b613-be303fe90c93",
   "skill_id": "17b41e03-fec1-46a2-a3c3-c802e91c82e0",
   "sort_order": 10,
-  "tools": {}
+  "tools": {
+    "antigravity": true,
+    "codex": true,
+    "cursor": true,
+    "qoder": true,
+    "workbuddy": true
+  }
 }
